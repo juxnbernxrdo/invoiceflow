@@ -177,7 +177,7 @@ async function processFiles(filePaths: string[]): Promise<boolean> {
             if (fs.existsSync(outPath)) {
                 try {
                     fs.unlinkSync(outPath);
-                } catch {}
+    } catch (error: any) { console.error("Error reading Excel files:", error); }
             }
             skippedFiles.push({ path: original, reason: err.message });
         }
@@ -236,7 +236,7 @@ export async function run() {
 
                 let handlingInteractiveSelector = false;
 
-                const isAtKey = (str: string | undefined, key: any): boolean => {
+                const isAtKey = (str: string | undefined, key: { name?: string; ctrl?: boolean; meta?: boolean; shift?: boolean; }): boolean => {
                     return str === '@' || key?.name === '@';
                 };
 
