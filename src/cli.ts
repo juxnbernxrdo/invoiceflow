@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as readline from 'readline';
 import chalk from 'chalk';
 import prompts from 'prompts';
+import * as cliProgress from 'cli-progress';
 import { ExcelTransformer } from './transformer';
 import { resolvePath, validateFilePath } from './utils/paths';
 import { applyGradient } from './utils/gradient';
@@ -104,6 +105,40 @@ export function getUniqueOutputPath(inputDir: string, index: number): string {
     }
 }
 
+function createProgressBar(): cliProgress.SingleBar {
+    return new cliProgress.SingleBar({
+        format: '  {bar} | {percentage}% | {value}/{total} | {filename}',
+        barCompleteChar: '\u2588',
+        barIncompleteChar: '\u2591',
+        hideCursor: true,
+        clearOnComplete: false,
+        stopOnComplete: true,
+        gracefulExit: true
+    });
+}
+
+function getSuggestionForError(errorMessage: string): string {
+    const lowerError = errorMessage.toLowerCase();
+
+    if (lowerError.includes('no existe') || lowerError.includes('enoent')) {
+        return 'Verifica que la ruta del archivo sea correcta y que el archivo exista.';
+    }
+    if (lowerError.includes('permiso') || lowerError.includes('eacces')) {
+        return 'Verifica los permisos de lectura del archivo.';
+    }
+    if (lowerError.includes('zip') || lowerError.includes('central directory')) {
+        return 'El archivo podría estar corrupto. Intenta abrirlo en Excel y guárdalo nuevamente.';
+    }
+    if (lowerError.includes('formato') || lowerError.includes('invalid')) {
+        return 'Asegúrate de usar archivos Excel (.xlsx o .xls) válidos.';
+    }
+    if (lowerError.includes('xlrdfssheet')) {
+        return 'El archivo podría tener hojas protegidas o formato incompatible. Prueba guardarlo como .xlsx.';
+    }
+
+    return 'Si el problema persiste, intenta con otro archivo o verifica que el archivo no esté dañado.';
+}
+
 async function processFiles(filePaths: string[]): Promise<boolean> {
     const resolvedFiles: { original: string; resolved: string; isValid: boolean; error?: string }[] = [];
     
@@ -130,15 +165,17 @@ async function processFiles(filePaths: string[]): Promise<boolean> {
         return false;
     }
 
+    const progressBar = createProgressBar();
     const processedSuccessfully: string[] = [];
     const skippedFiles: { path: string; reason: string }[] = [];
 
     // Process each file
     for (let idx = 0; idx < resolvedFiles.length; idx++) {
         const { original, resolved, isValid, error } = resolvedFiles[idx];
-        
+
         if (!isValid) {
             console.log(chalk.yellow(`\n⚠ Omitiendo archivo inválido: ${original} - Razón: ${error}`));
+            console.log(chalk.gray(`  💡 Sugerencia: ${getSuggestionForError(error || '')}`));
             skippedFiles.push({ path: original, reason: error || 'Archivo inválido' });
             continue;
         }
@@ -149,18 +186,24 @@ async function processFiles(filePaths: string[]): Promise<boolean> {
         console.log(chalk.cyan(`\nProcesando archivo ${idx + 1}/${resolvedFiles.length}: ${original}`));
         console.log(chalk.gray(`Destino de salida: ${outPath}`));
 
-        const transformer = new ExcelTransformer((msg) => {
-            if (msg.includes('correctamente') || msg.includes('finalizado')) {
-                console.log(chalk.green(`✔ ${msg}`));
-            } else if (msg.includes('Error')) {
-                console.log(chalk.red(`❌ ${msg}`));
-            } else {
-                console.log(chalk.blue(`✓ ${msg}`));
+        // Iniciar barra de progreso
+        progressBar.start(100, 0, { filename: path.basename(original) });
+
+        const transformer = new ExcelTransformer(
+            (msg) => {
+                // La barra de progreso maneja la visualización
+            },
+            (current, total, message) => {
+                const percentage = Math.round((current / total) * 100);
+                progressBar.update(percentage, { filename: path.basename(original) });
             }
-        });
+        );
 
         try {
             const stats = await transformer.transform(resolved, outPath);
+            progressBar.update(100, { filename: path.basename(original) });
+            progressBar.stop();
+
             console.log(chalk.green(`\n✔ ¡Transformación exitosa!`));
             console.log(chalk.gray(`- Columnas originales: ${stats.originalColumns}`));
             console.log(chalk.gray(`- Columnas finales: ${stats.finalColumns}`));
@@ -172,12 +215,14 @@ async function processFiles(filePaths: string[]): Promise<boolean> {
             console.log(chalk.green(`✔ Validación de integridad del archivo de salida superada.`));
             processedSuccessfully.push(original);
         } catch (err: any) {
+            progressBar.stop();
             console.error(chalk.red(`\n❌ Error al procesar el archivo "${original}":`));
             console.error(chalk.red(`   Causa: ${err.message}`));
+            console.log(chalk.gray(`  💡 Sugerencia: ${getSuggestionForError(err.message)}`));
             if (fs.existsSync(outPath)) {
                 try {
                     fs.unlinkSync(outPath);
-    } catch (error: any) { console.error("Error reading Excel files:", error); }
+                } catch {}
             }
             skippedFiles.push({ path: original, reason: err.message });
         }
