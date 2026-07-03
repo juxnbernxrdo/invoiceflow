@@ -1,0 +1,63 @@
+{
+  "name": "invoiceflow-cli",
+  "version": "1.0.1",
+  "description": "CLI tool to transform electronic invoice Excel files, removing unnecessary columns and calculating tax fields automatically.",
+  "main": "dist/index.js",
+  "bin": {
+    "invoiceflow": "./dist/index.js"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x dist/index.js",
+    "prepublishOnly": "npm run build",
+    "start": "ts-node src/index.ts",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "clean": "rm -rf dist",
+    "rebuild": "npm run clean && npm run build",
+    "postinstall": "chmod +x dist/index.js || true"
+  },
+  "keywords": [
+    "excel",
+    "cli",
+    "invoices",
+    "electronic-invoices",
+    "transform",
+    "ecuador",
+    "tax",
+    "iva"
+  ],
+  "author": "InvoiceFlow",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "cli-progress": "^3.12.0",
+    "commander": "^15.0.0",
+    "exceljs": "^4.4.0",
+    "prompts": "^2.4.2",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/cli-progress": "^3.11.6",
+    "@types/node": "^26.1.0",
+    "@types/prompts": "^2.4.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
