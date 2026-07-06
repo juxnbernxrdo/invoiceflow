@@ -7,7 +7,7 @@ import { exec } from 'child_process';
 import prompts from 'prompts';
 import * as cliProgress from 'cli-progress';
 import { ExcelTransformer } from './transformer';
-import { resolvePath, validateFilePath } from './utils/paths';
+import { validateFilePath } from './utils/paths';
 
 // Exact ASCII Art banner requested by the user
 const ASCII_ART = `╔════════════════════════════════════════════════════════════╗
