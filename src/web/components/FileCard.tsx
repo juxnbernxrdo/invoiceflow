@@ -1,6 +1,7 @@
-import { Pencil, FileText, CheckCircle2, AlertCircle, Loader2, X } from 'lucide-react';
-import { FileInfo } from '../api';
+import { Pencil, FileText, CheckCircle2, AlertCircle, Loader2, X, Download } from 'lucide-react';
+import { FileInfo, downloadFile } from '../api';
 import { useStore } from '../store';
+import { useState } from 'react';
 
 interface FileCardProps {
     file: FileInfo;
@@ -16,8 +17,24 @@ const statusIcons = {
 
 export function FileCard({ file, index }: FileCardProps) {
     const { outputNames, setOutputName, removeFile } = useStore();
+    const [downloading, setDownloading] = useState(false);
     const isPending = file.status === 'pending';
     const isDone = file.status === 'done';
+
+    // For pending files, use the local outputNames store (user is still editing).
+    // For processed files, use the server-stored outputName (authoritative).
+    const displayName = isPending
+        ? (outputNames[file.id] || '')
+        : (file.outputName || '');
+
+    const handleDownload = async () => {
+        setDownloading(true);
+        try {
+            await downloadFile(file);
+        } finally {
+            setDownloading(false);
+        }
+    };
 
     return (
         <div
@@ -35,7 +52,7 @@ export function FileCard({ file, index }: FileCardProps) {
                         <input
                             type="text"
                             placeholder="Nombre de salida"
-                            value={outputNames[file.id] || ''}
+                            value={displayName}
                             onChange={(e) => setOutputName(file.id, e.target.value)}
                             className="flex-1 bg-transparent border-b border-border-light text-sm text-text placeholder:text-text-muted outline-none focus:border-accent transition-colors py-0.5"
                         />
@@ -43,9 +60,9 @@ export function FileCard({ file, index }: FileCardProps) {
                     </div>
                 )}
 
-                {!isPending && outputNames[file.id] && (
+                {!isPending && displayName && (
                     <p className="text-xs text-text-muted mt-1">
-                        Salida: {outputNames[file.id]}{outputNames[file.id].endsWith('.xlsx') ? '' : '.xlsx'}
+                        Salida: {displayName}{displayName.endsWith('.xlsx') ? '' : '.xlsx'}
                     </p>
                 )}
 
@@ -60,15 +77,24 @@ export function FileCard({ file, index }: FileCardProps) {
                 )}
             </div>
 
+            {isDone && (
+                <button
+                    onClick={handleDownload}
+                    disabled={downloading}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-text-secondary hover:bg-surface-dim transition-colors disabled:opacity-50 opacity-0 group-hover:opacity-100"
+                >
+                    {downloading ? (
+                        <div className="w-3 h-3 border-2 border-text-muted/30 border-t-text-muted rounded-full animate-spin" />
+                    ) : (
+                        <Download size={12} />
+                    )}
+                </button>
+            )}
+
             {isPending && (
                 <button
                     onClick={() => removeFile(file.id)}
-                    className="
-                        flex-shrink-0 p-1 rounded-lg
-                        text-text-muted hover:text-danger
-                        opacity-0 group-hover:opacity-100
-                        transition-all
-                    "
+                    className="flex-shrink-0 p-1 rounded-lg text-text-muted hover:text-danger opacity-0 group-hover:opacity-100 transition-all"
                 >
                     <X size={14} />
                 </button>
