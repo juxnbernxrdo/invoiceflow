@@ -180,7 +180,6 @@ export class ExcelTransformer {
             const columns = this.readColumns(sheet);
 
             const deletedCols = this.matchDeleted(columns);
-            const pairs = this.matchReplacements(columns, deletedCols);
             stats.deletedColumns.push(...deletedCols.map(c => c.headerTechnical || `Columna ${c.index}`));
 
             // Build set of column indices to exclude (deleted)
@@ -667,93 +666,9 @@ export class ExcelTransformer {
         return result;
     }
 
-    private matchSumColumns(columns: ColumnInfo[]): ColumnInfo[] {
-        return columns.filter(c => this.matchHeader(c, SEMANTIC_RULES.sumHeaders));
-    }
-
-    private matchTarget(columns: ColumnInfo[]): ColumnInfo | undefined {
-        return columns.find(c => this.matchHeaderSingle(c, SEMANTIC_RULES.targetHeader, SEMANTIC_RULES.targetHumanNames));
-    }
-
-    private matchReplacements(columns: ColumnInfo[], deletedCols: ColumnInfo[]): { fromIndex: number; toIndex: number }[] {
-        const pairs: { fromIndex: number; toIndex: number }[] = [];
-        const deletedIndices = new Set(deletedCols.map(c => c.index));
-        const usedToIndices = new Set<number>();
-
-        // Try to match by color first (red → green)
-        // Red columns are those with red color in data rows
-        // Green columns are those with green color in row 2 (human headers)
-        const redCols = columns.filter(c => 
-            !deletedIndices.has(c.index) && 
-            c.colorFamily === 'red'
-        );
-        
-        // For each red column, find a green column with similar header
-        for (const redCol of redCols) {
-            // Find green column by matching header patterns
-            const greenCol = columns.find(c => 
-                !deletedIndices.has(c.index) && 
-                !usedToIndices.has(c.index) &&
-                c.colorFamily === 'green' &&
-                this.headersMatch(redCol, c)
-            );
-            
-            if (greenCol) {
-                pairs.push({ fromIndex: redCol.index, toIndex: greenCol.index });
-                usedToIndices.add(greenCol.index);
-            }
-        }
-
-        // Fallback to header-based matching
-        if (pairs.length === 0) {
-            for (const rule of SEMANTIC_RULES.replacements) {
-                const fromCol = columns.find(c =>
-                    !deletedIndices.has(c.index) && this.matchHeaderSingle(c, rule.fromHeader, [])
-                );
-                const toCol = columns.find(c =>
-                    !deletedIndices.has(c.index) && !usedToIndices.has(c.index) && this.matchHeaderSingle(c, rule.toHeader, [])
-                );
-                if (fromCol && toCol) {
-                    pairs.push({ fromIndex: fromCol.index, toIndex: toCol.index });
-                    usedToIndices.add(toCol.index);
-                }
-            }
-        }
-        
-        return pairs;
-    }
-    
-    private headersMatch(col1: ColumnInfo, col2: ColumnInfo): boolean {
-        // Simple heuristic: check if headers share common patterns
-        const h1 = col1.headerTechnical?.toLowerCase() || '';
-        const h2 = col2.headerHuman?.toLowerCase() || '';
-        
-        // Check for common prefixes or patterns
-        if (h1.includes('id') && h2.includes('id')) return true;
-        if (h1.includes('secuencia') && h2.includes('secuencia')) return true;
-        if (h1.includes('ruc') && h2.includes('ruc')) return true;
-        if (h1.includes('razon') && h2.includes('razón')) return true;
-        if (h1.includes('fecha') && h2.includes('fecha')) return true;
-        if (h1.includes('clave') && h2.includes('clave')) return true;
-        if (h1.includes('descripcion') && h2.includes('descripción')) return true;
-        if (h1.includes('base') && h2.includes('base')) return true;
-        if (h1.includes('val') && h2.includes('iva')) return true;
-        if (h1.includes('precio') && h2.includes('total')) return true;
-        
-        return false;
-    }
-
     private matchHeader(col: ColumnInfo, targetHeaders: string[]): boolean {
         return this.matchHeaderSingle(col, null, targetHeaders) ||
             (col.headerTechnical !== null && targetHeaders.includes(col.headerTechnical.toLowerCase()));
-    }
-
-    // Check if a formula string references a specific column by its original 1-based index.
-    private formulaReferencesColumn(formula: string, colOldIndex: number): boolean {
-        const colLabel = colIndexToLabel(colOldIndex);
-        // Match the column label followed by a row number (with optional $ signs)
-        const pattern = new RegExp(`\\$?${colLabel}\\$?\\d+`);
-        return pattern.test(formula);
     }
 
     private matchHeaderSingle(col: ColumnInfo, technicalTarget: string | null, humanTargets: string[]): boolean {
