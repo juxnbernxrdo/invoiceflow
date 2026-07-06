@@ -5,37 +5,22 @@ export function TipoGastoSelect() {
     const setTipoGasto = useStore(s => s.setTipoGasto);
 
     return (
-        <div style={{ marginBottom: 32 }}>
-            <label style={{
-                fontSize: '0.72rem',
-                fontWeight: 600,
-                letterSpacing: '0.10em',
-                textTransform: 'uppercase',
-                color: '#6e6e73',
-                display: 'block',
-                marginBottom: 8,
-            }}>
+        <div className="mb-8">
+            <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.10em] text-text-muted">
                 Tipo de gasto
             </label>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="flex gap-2">
                 {(['EMPRESARIAL', 'PERSONAL'] as const).map(opt => {
                     const active = tipoGasto === opt;
                     return (
                         <button
                             key={opt}
                             onClick={() => setTipoGasto(opt)}
-                            style={{
-                                padding: '10px 24px',
-                                borderRadius: 24,
-                                border: 'none',
-                                cursor: 'pointer',
-                                fontSize: '0.9rem',
-                                fontWeight: 500,
-                                fontFamily: "'Geist', -apple-system, sans-serif",
-                                transition: 'all 0.15s ease',
-                                background: active ? '#1d1d1f' : 'transparent',
-                                color: active ? '#ffffff' : '#424245',
-                            }}
+                            className={`rounded-3xl border-none px-6 py-2.5 text-[0.9rem] font-medium transition-all ${
+                                active
+                                    ? 'bg-text text-white'
+                                    : 'bg-transparent text-text-secondary hover:bg-surface-dim'
+                            }`}
                         >
                             {opt}
                         </button>
