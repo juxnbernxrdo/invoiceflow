@@ -1,4 +1,4 @@
-import { CheckCircle2, Download, Zap, FileText } from 'lucide-react';
+import { CheckCircle2, Download, Zap, FileText, Inbox } from 'lucide-react';
 import { FileInfo, downloadFile, downloadAll } from '../api';
 import { useState } from 'react';
 
@@ -11,8 +11,19 @@ export function ResultPanel({ files }: ResultPanelProps) {
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
     const doneFiles = files.filter(f => f.status === 'done');
     const errorFiles = files.filter(f => f.status === 'error');
+    const hasResults = doneFiles.length > 0 || errorFiles.length > 0;
 
-    if (files.length === 0) return null;
+    if (!hasResults) {
+        return (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-surface-dim px-6 py-16 text-center fade-in">
+                <Inbox size={32} className="text-text-faint mb-3" strokeWidth={1.5} />
+                <p className="text-sm font-medium text-text-muted">Sin resultados</p>
+                <p className="text-xs text-text-faint mt-1">
+                    Los archivos procesados aparecerán aquí
+                </p>
+            </div>
+        );
+    }
 
     const handleDownloadAll = async () => {
         setDownloadingAll(true);
