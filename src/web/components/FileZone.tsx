@@ -20,16 +20,8 @@ export function FileZone() {
     };
 
     return (
-        <div style={{ marginBottom: 32 }}>
-            <label style={{
-                fontSize: '0.72rem',
-                fontWeight: 600,
-                letterSpacing: '0.10em',
-                textTransform: 'uppercase',
-                color: '#6e6e73',
-                display: 'block',
-                marginBottom: 8,
-            }}>
+        <div className="mb-8">
+            <label className="mb-2 block text-[0.72rem] font-semibold uppercase tracking-[0.10em] text-text-muted">
                 Archivos
             </label>
             <div
@@ -37,22 +29,18 @@ export function FileZone() {
                 onDragLeave={() => setIsDragging(false)}
                 onDrop={handleDrop}
                 onClick={() => inputRef.current?.click()}
-                style={{
-                    border: `2px dashed ${isDragging ? '#0071e3' : '#e0e0e5'}`,
-                    borderRadius: 18,
-                    padding: '44px 24px',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    background: isDragging ? '#e8f0fc' : '#ffffff',
-                }}
+                className={`cursor-pointer rounded-[18px] border-2 border-dashed px-6 py-11 text-center transition-all ${
+                    isDragging
+                        ? 'border-accent bg-accent-soft'
+                        : 'border-border bg-white hover:border-text-faint'
+                }`}
             >
                 <input
                     ref={inputRef}
                     type="file"
                     multiple
                     accept=".xlsx,.xls"
-                    style={{ display: 'none' }}
+                    className="hidden"
                     onChange={(e) => {
                         const selected = Array.from(e.target.files || []);
                         if (selected.length > 0) addFiles(selected);
@@ -61,20 +49,19 @@ export function FileZone() {
                 />
                 <Upload
                     size={24}
-                    color={isDragging ? '#0071e3' : '#aeaeb2'}
+                    className={`mx-auto mb-3 transition-colors ${isDragging ? 'text-accent' : 'text-text-faint'}`}
                     strokeWidth={1.5}
-                    style={{ marginBottom: 12, transition: 'color 0.15s ease' }}
                 />
-                <p style={{ fontSize: '0.97rem', color: '#424245', margin: 0, lineHeight: 1.5 }}>
+                <p className="m-0 text-[0.97rem] leading-relaxed text-text-secondary">
                     {isUploading ? 'Subiendo archivos...' : 'Arrastra archivos Excel o haz clic para seleccionar'}
                 </p>
-                <p style={{ fontSize: '0.79rem', color: '#aeaeb2', margin: '6px 0 0', lineHeight: 1.5 }}>
+                <p className="mt-1.5 m-0 text-[0.79rem] leading-relaxed text-text-faint">
                     .xlsx o .xls — hasta 50MB
                 </p>
             </div>
 
             {files.length > 0 && (
-                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="mt-3 flex flex-col gap-2">
                     {files.map((f, i) => <FileCard key={f.id} file={f} index={i} />)}
                 </div>
             )}
