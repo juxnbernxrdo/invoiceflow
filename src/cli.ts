@@ -4,12 +4,10 @@ import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
 import { exec } from 'child_process';
-import chalk from 'chalk';
 import prompts from 'prompts';
 import * as cliProgress from 'cli-progress';
 import { ExcelTransformer } from './transformer';
 import { resolvePath, validateFilePath } from './utils/paths';
-import { applyGradient } from './utils/gradient';
 
 // Exact ASCII Art banner requested by the user
 const ASCII_ART = `╔════════════════════════════════════════════════════════════╗
@@ -166,7 +164,7 @@ async function processFiles(
     }
 
     if (resolvedFiles.length === 0) {
-        console.log(chalk.yellow('No se seleccionaron archivos para procesar.'));
+        console.log('⚠ No se seleccionaron archivos para procesar.');
         return false;
     }
 
@@ -178,7 +176,7 @@ async function processFiles(
         const { original, resolved, isValid, error } = resolvedFiles[idx];
 
         if (!isValid) {
-            console.log(chalk.yellow(`  ⚠ ${original}: ${getSuggestionForError(error || '')}`));
+            console.log(`⚠ ${original}: ${getSuggestionForError(error || '')}`);
             skippedFiles.push({ path: original, reason: error || 'Archivo inválido' });
             continue;
         }
@@ -200,11 +198,11 @@ async function processFiles(
             await transformer.transform(resolved, outPath, { tipoGasto });
             progressBar.update(100);
             progressBar.stop();
-            console.log(chalk.green(`  ✔ ${path.basename(original)} → ${path.basename(outPath)}`));
+            console.log(`✔ ${path.basename(original)} → ${path.basename(outPath)}`);
             processedSuccessfully.push(original);
         } catch (err: any) {
             progressBar.stop();
-            console.log(chalk.red(`  ✘ ${original}: ${getSuggestionForError(err.message)}`));
+            console.log(`✘ ${original}: ${getSuggestionForError(err.message)}`);
             if (fs.existsSync(outPath)) {
                 try { fs.unlinkSync(outPath); } catch {}
             }
@@ -215,10 +213,10 @@ async function processFiles(
     if (resolvedFiles.length > 1) {
         console.log('');
         if (processedSuccessfully.length > 0) {
-            console.log(chalk.green(`  ${processedSuccessfully.length} archivo(s) procesado(s)`));
+            console.log(`${processedSuccessfully.length} archivo(s) procesado(s)`);
         }
         if (skippedFiles.length > 0) {
-            console.log(chalk.red(`  ${skippedFiles.length} archivo(s) omitido(s)`));
+            console.log(`${skippedFiles.length} archivo(s) omitido(s)`);
         }
     }
 
@@ -227,8 +225,6 @@ async function processFiles(
 
 export async function run() {
     const program = new Command();
-
-    const bannerString = applyGradient(ASCII_ART);
 
     program
         .name('invo')
@@ -240,14 +236,14 @@ export async function run() {
         .action(async (files: string[], options: { tipoGasto?: string; outputName?: string }) => {
             if (files && files.length > 0) {
                 // Command line mode (Banner only once)
-                console.log(bannerString);
+                console.log(ASCII_ART);
 
                 let outputNames: Map<number, string> | undefined;
 
                 // If --output-name provided with multiple files, prompt for each name
                 if (options.outputName && files.length > 1) {
-                    console.log(chalk.cyan('\n  Archivos a procesar:'));
-                    files.forEach((f, i) => console.log(chalk.white(`    ${i + 1}. ${path.basename(f)}`)));
+                    console.log('\n  Archivos a procesar:');
+                    files.forEach((f, i) => console.log(`    ${i + 1}. ${path.basename(f)}`));
                     console.log('');
 
                     outputNames = new Map();
@@ -270,7 +266,7 @@ export async function run() {
                 await processFiles(files, options.tipoGasto, outputNames);
             } else {
                 // Interactive Mode (Banner only once)
-                console.log(bannerString);
+                console.log(ASCII_ART);
                 console.log(QUICK_HELP);
 
                 const rl = readline.createInterface({
@@ -323,11 +319,11 @@ export async function run() {
 
                         const excelFiles = getExcelFiles();
                         if (excelFiles.length === 0) {
-                            console.log(chalk.yellow('\n  No se encontraron archivos Excel en el directorio actual.'));
+                            console.log('⚠ No se encontraron archivos Excel en el directorio actual.');
                             return;
                         }
 
-                        console.log(chalk.cyan('\n  Archivos Excel disponibles:'));
+                        console.log('\n  Archivos Excel disponibles:');
 
                         const choices = [
                             { title: 'Todos los archivos Excel', value: 'ALL_EXCEL_FILES' },
@@ -441,7 +437,7 @@ export async function run() {
                         const { startServer } = require('./server/index');
                         const port = 3000;
                         const url = `http://localhost:${port}`;
-                        console.log(chalk.cyan(`\n  Iniciando InvoiceFlow web en ${url}...`));
+                        console.log(`\n  Iniciando InvoiceFlow web en ${url}...`);
                         await startServer(port);
 
                         const openCmd = process.platform === 'darwin' ? 'open'
@@ -449,8 +445,8 @@ export async function run() {
                             : 'xdg-open';
                         exec(`${openCmd} ${url}`, (err) => {
                             if (err) {
-                                console.log(chalk.yellow(`\n  No se pudo abrir el navegador automáticamente.`));
-                                console.log(chalk.white(`  Abre manualmente: ${chalk.cyan(url)}\n`));
+                                console.log('⚠ No se pudo abrir el navegador automáticamente.');
+                                console.log(`  Abre manualmente: ${url}\n`);
                             }
                         });
                         return;
@@ -486,7 +482,7 @@ export async function run() {
                     restoreStdinForKeypress();
                     rl.prompt();
                 }).on('close', () => {
-                    console.log(chalk.green('\n¡Gracias por usar InvoiceFlow! ¡Hasta luego!\n'));
+                    console.log('\n¡Gracias por usar InvoiceFlow! ¡Hasta luego!\n');
                     process.exit(0);
                 });
             }
