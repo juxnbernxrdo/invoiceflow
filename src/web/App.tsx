@@ -1,3 +1,4 @@
+import './index.css';
 import { Header } from './components/Header';
 import { FileZone } from './components/FileZone';
 import { TipoGastoSelect } from './components/TipoGastoSelect';

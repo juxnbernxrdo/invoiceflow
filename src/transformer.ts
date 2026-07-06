@@ -6,6 +6,10 @@ import * as XLSX from 'xlsx';
 import { classifyColor, ColorFamily } from './utils/colors';
 import { colIndexToLabel, translateFormula } from './utils/formulas';
 
+export interface TransformOptions {
+    tipoGasto?: string;
+}
+
 export interface TransformStats {
     originalColumns: number;
     finalColumns: number;
@@ -22,15 +26,13 @@ export interface TransformRules {
     targetHeader: string;
     targetHumanNames: string[];
     replacements: { fromHeader: string; toHeader: string }[];
+    fixedColumns: { header: string; value: any; position: 'after' | 'before'; refHeader: string }[];
 }
 
-// Semantic rules learned from the reference file.
-// These are identified by header meaning, NOT by color or position.
-// The CLI works on any file following the same structure, with or without color highlighting.
+// Semantic rules: 26-column input → 12-column output.
+// Columns are identified by header meaning, NOT by color or position.
 const SEMANTIC_RULES: TransformRules = {
-    // Fields that represent auxiliary/complementary data not needed in the final output.
-    // Identified by their technical header names (row 1).
-    // These columns are highlighted in yellow or blue in the reference file.
+    // Columns to DELETE from output (14 columns)
     deleteHeaders: [
         'tpcomproba',     // tipo comprobante
         'numautori',      // número autorización
@@ -43,14 +45,13 @@ const SEMANTIC_RULES: TransformRules = {
         'precio_u',       // precio unitario
         'descuento',      // descuento
         'poriva',         // porcentaje IVA
-        'base0',          // base tarifa 0% (integrated into irbpnr)
-        'valice',         // valor ICE (integrated into irbpnr)
-        'exento',         // exento de IVA (integrated into irbpnr)
-        'noobjiva',       // no objeto de IVA (integrated into irbpnr)
+        'base0',          // base tarifa 0% (used in BASE CERO calc, then deleted)
+        'valice',         // valor ICE (used in BASE CERO calc, then deleted)
+        'exento',         // exento de IVA (used in BASE CERO calc, then deleted)
+        'noobjiva',       // no objeto de IVA (used in BASE CERO calc, then deleted)
     ],
 
-    // Columns whose values must be summed to calculate "irbpnr" (tarifa 0%).
-    // These represent values with 0% IVA rate and are highlighted in blue.
+    // Columns summed to calculate BASE CERO (tarifa 0%)
     sumHeaders: [
         'base0',          // base tarifa 0%
         'valice',         // valor ICE
@@ -58,25 +59,32 @@ const SEMANTIC_RULES: TransformRules = {
         'noobjiva',       // no objeto de IVA
     ],
 
-    // Target column that receives the sum of the sumHeaders columns.
-    // This column is highlighted in purple in the reference file.
-    targetHeader: 'irbpnr',
-    targetHumanNames: ['irbpnr', 'base cero'],
+    // irbpnr is NOT a sum column — it's a legacy column that gets deleted.
+    // Its value is NOT used in the output. BASE CERO is recalculated from sumHeaders.
 
-    // Red→Green field replacements.
-    // Format: { fromHeader: 'red_col', toHeader: 'green_col' }
-    // The red columns (row 1) are replaced by green columns (row 2).
+    // Target column that receives the sum of sumHeaders.
+    // In the output this appears as "BASE CERO".
+    targetHeader: 'irbpnr',
+    targetHumanNames: ['base cero', 'base0'],
+
+    // Column header replacements (technical → human-readable output header)
     replacements: [
         { fromHeader: 'idrecep', toHeader: 'ID RECEPTOR' },
-        { fromHeader: 'secuenciales', toHeader: 'SECUENCIAL' },
+        { fromHeader: 'secuenciales', toHeader: 'SECUENCIAL ' },
         { fromHeader: 'ruc_emisor', toHeader: 'RUC EMISOR' },
         { fromHeader: 'razonsocial', toHeader: 'RAZÓN SOCIAL' },
         { fromHeader: 'fechaemi', toHeader: 'FECHA EMISIÓN' },
         { fromHeader: 'claveacceso', toHeader: 'CLAVE ACCESO' },
         { fromHeader: 'descripcion', toHeader: 'DESCRIPCIÓN' },
-        { fromHeader: 'baseimp', toHeader: 'BASE IVA' },
+        { fromHeader: 'baseimp', toHeader: 'BASE  IVA' },
         { fromHeader: 'valiva', toHeader: 'IVA' },
         { fromHeader: 'precio_t', toHeader: 'TOTAL' },
+    ],
+
+    // Fixed columns inserted into the output (not from input)
+    // value is a placeholder — actual value comes from TransformOptions.tipoGasto
+    fixedColumns: [
+        { header: 'TIPO GASTO', value: '', position: 'after', refHeader: 'descripcion' },
     ],
 };
 
@@ -105,9 +113,11 @@ export class ExcelTransformer {
         }
     }
 
-    public async transform(inputPath: string, outputPath: string): Promise<TransformStats> {
-        this.totalSteps = 8; // Total de pasos de progreso
+    public async transform(inputPath: string, outputPath: string, options?: TransformOptions): Promise<TransformStats> {
+        this.totalSteps = 8;
         this.currentStep = 0;
+
+        const tipoGastoValue = options?.tipoGasto || 'EMPRESARIAL';
 
         const workbook = new ExcelJS.Workbook();
         
@@ -117,24 +127,44 @@ export class ExcelTransformer {
         let tempXlsxPath = '';
         
         if (ext === '.xls') {
-            this.onProgress('Convirtiendo archivo .xls a .xlsx...');
-            this.updateProgress('Convirtiendo archivo .xls a .xlsx...');
-            // Use SheetJS to read .xls and write as .xlsx
-            const xlsxWorkbook = XLSX.readFile(inputPath, { type: 'file' });
-            tempXlsxPath = inputPath.replace(/\.xls$/i, '') + '_converted.xlsx';
-            XLSX.writeFile(xlsxWorkbook, tempXlsxPath, { bookType: 'xlsx' });
-            fileToRead = tempXlsxPath;
+            // Convert .xls to .xlsx using SheetJS (suppress all output)
+            const origLog = console.log;
+            const origWarn = console.warn;
+            const origStdoutWrite = process.stdout.write.bind(process.stdout);
+            const origStderrWrite = process.stderr.write.bind(process.stderr);
+            console.log = () => {};
+            console.warn = () => {};
+            process.stdout.write = () => true;
+            process.stderr.write = () => true;
+            try {
+                const xlsxWorkbook = XLSX.readFile(inputPath, { type: 'file' });
+                for (const name of xlsxWorkbook.SheetNames) {
+                    if (name.length > 31) {
+                        const shortName = name.substring(0, 31);
+                        xlsxWorkbook.Sheets[shortName] = xlsxWorkbook.Sheets[name];
+                        delete xlsxWorkbook.Sheets[name];
+                        const idx = xlsxWorkbook.SheetNames.indexOf(name);
+                        xlsxWorkbook.SheetNames[idx] = shortName;
+                    }
+                }
+                tempXlsxPath = inputPath.replace(/\.xls$/i, '') + '_converted.xlsx';
+                XLSX.writeFile(xlsxWorkbook, tempXlsxPath, { bookType: 'xlsx' });
+                fileToRead = tempXlsxPath;
+            } finally {
+                console.log = origLog;
+                console.warn = origWarn;
+                process.stdout.write = origStdoutWrite;
+                process.stderr.write = origStderrWrite;
+            }
         }
         
         await workbook.xlsx.readFile(fileToRead);
         
-        // Clean up temp file
         if (tempXlsxPath) {
             try { fs.unlinkSync(tempXlsxPath); } catch {}
         }
         
         this.updateProgress('Archivo cargado');
-        this.updateProgress('Analizando hojas...');
 
         const stats: TransformStats = {
             originalColumns: 0,
@@ -147,73 +177,50 @@ export class ExcelTransformer {
         for (const sheet of workbook.worksheets) {
             stats.originalColumns = Math.max(stats.originalColumns, sheet.columnCount);
 
-            this.onProgress(`Detectando columnas en la hoja ${sheet.name}...`);
             const columns = this.readColumns(sheet);
 
             const deletedCols = this.matchDeleted(columns);
             const pairs = this.matchReplacements(columns, deletedCols);
             stats.deletedColumns.push(...deletedCols.map(c => c.headerTechnical || `Columna ${c.index}`));
 
-            const getColByHeader = (tech: string) => columns.find(c => c.headerTechnical?.toLowerCase() === tech);
-            const irbpnrCol = getColByHeader('irbpnr');
-            const valiceCol = getColByHeader('valice');
-            const exentoCol = getColByHeader('exento');
-            const noobjivaCol = getColByHeader('noobjiva');
-
-            // Identify blue columns (tarifa 0% components)
-            const blueCols = columns.filter(c => c.colorFamily === 'blue');
-            const purpleCol = columns.find(c => c.colorFamily === 'purple');
-
-            this.onProgress(`Columnas azules detectadas: ${blueCols.length}`);
-            this.updateProgress(`Columnas azules detectadas: ${blueCols.length}`);
-            this.onProgress(`Columna púrpura detectada: ${purpleCol ? purpleCol.headerTechnical : 'No encontrada'}`);
-            this.updateProgress(`Columna púrpura detectada: ${purpleCol ? purpleCol.headerTechnical : 'No encontrada'}`);
-            
-            if (purpleCol) {
-                this.onProgress(`Calculando ${purpleCol.headerTechnical} como suma de columnas azules (tarifa 0%)...`);
-                this.updateProgress(`Calculando ${purpleCol.headerTechnical} como suma de columnas azules (tarifa 0%)...`);
-            }
-
-            // Build set of column indices to exclude (deleted + green-side of replacements)
+            // Build set of column indices to exclude (deleted)
             const excludeIndices = new Set<number>();
             for (const d of deletedCols) excludeIndices.add(d.index);
-            for (const p of pairs) excludeIndices.add(p.toIndex);
-
-            // Columns to keep in the output
-            const keepCols = columns.filter(c => !excludeIndices.has(c.index));
-            stats.finalColumns = keepCols.length;
-
-            // Map original 1-based column index → new 1-based column index
-            const colMap = new Map<number, number>();
-            keepCols.forEach((c, i) => colMap.set(c.index, i + 1));
-
-            const getLabel = (colInfo?: ColumnInfo): string | null => {
-                if (!colInfo) return null;
-                const newIdx = colMap.get(colInfo.index);
-                return newIdx ? colIndexToLabel(newIdx) : null;
-            };
-
-            const irbpnrLabel = getLabel(irbpnrCol);
-            const valiceLabel = getLabel(valiceCol);
-            const exentoLabel = getLabel(exentoCol);
-            const noobjivaLabel = getLabel(noobjivaCol);
-
-            this.onProgress('Transformando...');
-            // Only 1 header row in output (row 1 with human names from green columns)
-            const headerRowsCount = 1;
             const newData: any[][] = [];
             const newStyles: Partial<ExcelJS.Style>[][] = [];
             const rowHeights: number[] = [];
 
-            // Get row 2 values for header replacement
+            // Detect if row 2 is human headers or data
+            // Old format: row 2 = human headers (text labels)
+            // New format: row 2 = first data row (numbers, dates, IDs)
             const row2 = sheet.getRow(2);
+            let row2IsData = false;
+            if (sheet.rowCount >= 2) {
+                let numericCount = 0;
+                let totalChecked = 0;
+                for (const col of columns) {
+                    const cell = row2.getCell(col.index);
+                    if (cell.value !== null && cell.value !== undefined && cell.value !== '') {
+                        totalChecked++;
+                        if (typeof cell.value === 'number' || cell.value instanceof Date) {
+                            numericCount++;
+                        }
+                    }
+                }
+                // If most values are numeric/date, row 2 is data
+                if (totalChecked > 0 && numericCount / totalChecked > 0.5) {
+                    row2IsData = true;
+                }
+            }
+
+            const headerRowsCount = row2IsData ? 1 : 2;
 
             // Find the last row with actual data (skip empty trailing rows)
             let lastDataRow = sheet.rowCount;
-            while (lastDataRow > 2) {
+            while (lastDataRow > headerRowsCount) {
                 const checkRow = sheet.getRow(lastDataRow);
                 let hasData = false;
-                for (const col of keepCols) {
+                for (const col of columns) {
                     const cell = checkRow.getCell(col.index);
                     if (cell.value !== null && cell.value !== undefined && cell.value !== '') {
                         hasData = true;
@@ -224,77 +231,136 @@ export class ExcelTransformer {
                 lastDataRow--;
             }
 
-            for (let r = 1; r <= lastDataRow; r++) {
+            // Build output column order:
+            // 1. Kept columns (not deleted) in their original order
+            // 2. Insert fixed columns at specified positions
+            // 3. Target column (irbpnr) is replaced by the calculated sum (BASE CERO)
+            const keptCols = columns.filter(c => !excludeIndices.has(c.index));
+            const targetColInfo = columns.find(c =>
+                c.headerTechnical?.toLowerCase() === SEMANTIC_RULES.targetHeader.toLowerCase()
+            );
+
+            // Build the final output column list with fixed columns inserted
+            interface OutputCol {
+                type: 'data' | 'fixed' | 'calculated';
+                colInfo?: ColumnInfo;
+                fixedValue?: any;
+                fixedHeader?: string;
+            }
+
+            const outputCols: OutputCol[] = [];
+            const sumCols = columns.filter(c => this.matchHeader(c, SEMANTIC_RULES.sumHeaders));
+            let baseCeroInserted = false;
+
+            for (const col of keptCols) {
+                // Skip the target column (irbpnr) — it will be replaced by calculated sum
+                if (targetColInfo && col.index === targetColInfo.index) continue;
+
+                // Insert BASE CERO before BASE IVA
+                if (!baseCeroInserted && col.headerTechnical?.toLowerCase() === 'baseimp') {
+                    outputCols.push({ type: 'calculated', fixedHeader: 'BASE CERO' });
+                    baseCeroInserted = true;
+                }
+
+                outputCols.push({ type: 'data', colInfo: col });
+
+                // Check if a fixed column should be inserted after this one
+                for (const fc of SEMANTIC_RULES.fixedColumns) {
+                    if (fc.position === 'after' && col.headerTechnical?.toLowerCase() === fc.refHeader.toLowerCase()) {
+                        const fixedVal = fc.header === 'TIPO GASTO' ? tipoGastoValue : fc.value;
+                        outputCols.push({ type: 'fixed', fixedValue: fixedVal, fixedHeader: fc.header });
+                    }
+                }
+            }
+
+            // If BASE CERO wasn't inserted yet (baseimp not found), add at end
+            if (!baseCeroInserted) {
+                outputCols.push({ type: 'calculated', fixedHeader: 'BASE CERO' });
+            }
+
+            stats.finalColumns = outputCols.length;
+
+            // Map original 1-based column index → new 1-based column index (for formula translation)
+            const dataCols = outputCols.filter(oc => oc.type === 'data' && oc.colInfo);
+            const colMap = new Map<number, number>();
+            dataCols.forEach((oc, i) => colMap.set(oc.colInfo!.index, i + 1));
+
+            // Build header row using replacement rules
+            const headerRow: any[] = outputCols.map(oc => {
+                if (oc.type === 'fixed') return oc.fixedHeader;
+                if (oc.type === 'calculated') return oc.fixedHeader;
+                // Find replacement for this column
+                const replacement = SEMANTIC_RULES.replacements.find(
+                    r => r.fromHeader.toLowerCase() === oc.colInfo!.headerTechnical?.toLowerCase()
+                );
+                return replacement ? replacement.toHeader : oc.colInfo!.headerTechnical || '';
+            });
+
+            newData.push(headerRow);
+            newStyles.push(outputCols.map(() => ({})));
+
+            // Process data rows
+            const dataStartRow = row2IsData ? 2 : 3;
+            for (let r = dataStartRow; r <= lastDataRow; r++) {
                 const row = sheet.getRow(r);
-                
-                // Skip row 2 (green headers) - we'll use them in row 1
-                if (r === 2) continue;
-                
                 rowHeights.push(row.height);
 
                 const rowData: any[] = [];
                 const rowStyle: Partial<ExcelJS.Style>[] = [];
 
-                for (const col of keepCols) {
-                    let srcIndex = col.index;
+                for (const oc of outputCols) {
+                    let val: any;
 
-                    // If this column is the red-side of a replacement, use the green-side source
-                    const rep = pairs.find(p => p.fromIndex === col.index);
-                    if (rep) srcIndex = rep.toIndex;
-
-                    const cell = row.getCell(srcIndex);
-                    let val = cell.value;
-                    const style = { ...cell.style };
-
-                    // Strip highlight fill colors
-                    if (style.fill?.type === 'pattern' && style.fill.fgColor?.argb) {
-                        if (classifyColor(style.fill.fgColor.argb) !== 'none') {
-                            delete style.fill;
-                        }
-                    }
-                    // Strip highlight font colors
-                    if (style.font?.color?.argb) {
-                        if (classifyColor(style.font.color.argb) !== 'none') {
-                            delete style.font.color;
-                        }
-                    }
-
-                    delete (cell as any)._comment;
-
-                    // For header row (r=1), use human name from row 2 if this column has a green header
-                    if (r === 1) {
-                        const cellR2 = row2.getCell(col.index);
-                        if (cellR2.value) {
-                            val = cellR2.value;
-                        }
-                    }
-
-                    // Recalculate target columns for data rows
-                    // Purple column (irbpnr) = sum of all blue columns (tarifa 0%)
-                    // Note: r is the original row number, but in output row 2 is skipped
-                    // So for formulas, we need to use r-1 when r > 2
-                    const outputRow = r > 2 ? r - 1 : r;
-                    
-                    if (r > headerRowsCount && purpleCol && col.index === purpleCol.index) {
-                        // Calculate sum of blue columns directly (hardcoded values, not formulas)
+                    if (oc.type === 'fixed') {
+                        val = oc.fixedValue;
+                    } else if (oc.type === 'calculated') {
+                        // Calculate sum of sumHeaders
                         let sum = 0;
-                        for (const blueCol of blueCols) {
-                            const blueCell = row.getCell(blueCol.index);
-                            const blueVal = blueCell.value;
-                            if (typeof blueVal === 'number') {
-                                sum += blueVal;
-                            } else if (typeof blueVal === 'string' && !isNaN(Number(blueVal))) {
-                                sum += Number(blueVal);
+                        for (const sc of sumCols) {
+                            const cell = row.getCell(sc.index);
+                            const v = cell.value;
+                            if (typeof v === 'number') {
+                                sum += v;
+                            } else if (typeof v === 'string' && !isNaN(Number(v))) {
+                                sum += Number(v);
                             }
                         }
                         val = sum;
                         stats.recalculatedRows++;
-                    } else if (r > headerRowsCount && val && typeof val === 'object' && 'formula' in val && val.formula) {
-                        val = { formula: translateFormula(val.formula, colMap, r, outputRow), result: val.result };
+                    } else {
+                        // Data column
+                        const col = oc.colInfo!;
+                        const cell = row.getCell(col.index);
+                        val = cell.value;
+                        const style = { ...cell.style };
+
+                        // Strip highlight fill colors
+                        if (style.fill?.type === 'pattern' && style.fill.fgColor?.argb) {
+                            if (classifyColor(style.fill.fgColor.argb) !== 'none') {
+                                delete style.fill;
+                            }
+                        }
+                        // Strip highlight font colors
+                        if (style.font?.color?.argb) {
+                            if (classifyColor(style.font.color.argb) !== 'none') {
+                                delete style.font.color;
+                            }
+                        }
+
+                        // Translate formulas to new column positions
+                        if (val && typeof val === 'object' && 'formula' in val && val.formula) {
+                            val = { formula: translateFormula(val.formula, colMap), result: val.result };
+                        }
+
+                        rowStyle.push(style);
                     }
 
                     rowData.push(val);
-                    rowStyle.push(style);
+                    if (oc.type !== 'fixed' && oc.type !== 'calculated') {
+                        // rowStyle already pushed for data columns
+                    } else {
+                        rowStyle.push({});
+                    }
                 }
 
                 newData.push(rowData);
@@ -302,7 +368,12 @@ export class ExcelTransformer {
             }
 
             // Save column widths
-            const colWidths = keepCols.map(c => sheet.getColumn(c.index).width);
+            const colWidths = dataCols.map(oc => {
+                if (oc.colInfo) {
+                    return sheet.getColumn(oc.colInfo.index).width;
+                }
+                return undefined;
+            });
 
             // Clear the worksheet
             while (sheet.rowCount > 0) sheet.spliceRows(1, 1);
@@ -360,24 +431,167 @@ export class ExcelTransformer {
             }
         }
 
-        this.onProgress('Validando resultados...');
-        this.updateProgress('Validando resultados...');
+        this.updateProgress('Validando...');
         for (const sheet of workbook.worksheets) {
             if (sheet.rowCount === 0) {
                 throw new Error(`La hoja ${sheet.name} quedó vacía después del procesamiento.`);
             }
         }
 
-        this.onProgress('Guardando archivo...');
-        this.updateProgress('Guardando archivo...');
+        // Apply output formatting to match reference style
+        for (const sheet of workbook.worksheets) {
+            if (sheet.rowCount === 0) continue;
+
+            // 1. Auto filter (all columns except last)
+            const lastCol = sheet.columnCount > 1 ? sheet.columnCount - 1 : sheet.columnCount;
+            const lastColLetter = String.fromCharCode(64 + lastCol);
+            sheet.autoFilter = `A1:${lastColLetter}${sheet.rowCount}`;
+
+            // 2. Freeze panes at row 2 (freeze header)
+            sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+            // 3. Header row formatting (row 1)
+            const headerRow = sheet.getRow(1);
+            headerRow.height = 31.2;
+            for (let c = 1; c <= sheet.columnCount; c++) {
+                const cell = headerRow.getCell(c);
+                cell.font = { bold: true, size: 12, name: 'Arial' };
+                cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            }
+
+            // 4. Data rows formatting
+            const centerCols = new Set([1, 2, 3, 5, 6, 8, 9, 10, 11, 12]);
+            const leftCols = new Set([4, 7]);
+            const numberCols = new Set([9, 10, 11, 12]); // I,J,K,L
+            const dateCol = 5;
+
+            for (let r = 2; r <= sheet.rowCount; r++) {
+                const row = sheet.getRow(r);
+                for (let c = 1; c <= sheet.columnCount; c++) {
+                    const cell = row.getCell(c);
+                    cell.font = { size: 12, name: 'Arial' };
+
+                    if (centerCols.has(c)) {
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    } else if (leftCols.has(c)) {
+                        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+                    }
+
+                    if (numberCols.has(c)) {
+                        cell.numFmt = '#,##0.00';
+                    }
+                    if (c === dateCol) {
+                        cell.numFmt = 'mm-dd-yy';
+                    }
+                }
+            }
+
+            // 5. Auto-width and row height
+            const COL_MIN = 8;
+            const COL_MAX_DEFAULT = 50;
+            const COL_MAX_TEXT = 80;
+            const PAD = 2;
+            const CHAR_WIDTH: Record<string, number> = {
+                'mm-dd-yy': 10,
+                '#,##0.00': 10,
+                '$#,##0.00': 11,
+                '0%': 6,
+            };
+            // Columns that hold long text (RAZÓN SOCIAL, DESCRIPCIÓN)
+            const textCols = new Set([4, 7]);
+
+            const columnWidths: number[] = [];
+
+            for (let c = 1; c <= sheet.columnCount; c++) {
+                let maxWidth = 0;
+                const col = sheet.getColumn(c);
+                const numFmt = col.numFmt || 'General';
+                const fmtWidth = CHAR_WIDTH[numFmt] || 0;
+
+                for (let r = 1; r <= sheet.rowCount; r++) {
+                    const cell = sheet.getRow(r).getCell(c);
+                    const val = cell.value;
+                    if (val === null || val === undefined || val === '') continue;
+
+                    let w: number;
+                    if (typeof val === 'number') {
+                        w = fmtWidth || String(val).length;
+                    } else if (val instanceof Date) {
+                        w = fmtWidth || 10;
+                    } else if (typeof val === 'object' && 'formula' in val) {
+                        const result = (val as any).result;
+                        w = fmtWidth || (result != null ? String(result).length : 8);
+                    } else {
+                        const str = String(val);
+                        w = 0;
+                        for (const ch of str) {
+                            w += ch.charCodeAt(0) > 0x2E80 ? 2 : 1;
+                        }
+                    }
+                    if (w > maxWidth) maxWidth = w;
+                }
+
+                // Header width (bold adds ~10%)
+                const headerCell = sheet.getRow(1).getCell(c);
+                const headerVal = headerCell.value;
+                if (headerVal) {
+                    let hw = 0;
+                    for (const ch of String(headerVal)) {
+                        hw += ch.charCodeAt(0) > 0x2E80 ? 2 : 1;
+                    }
+                    hw = Math.ceil(hw * 1.1);
+                    if (hw > maxWidth) maxWidth = hw;
+                }
+
+                const colMax = textCols.has(c) ? COL_MAX_TEXT : COL_MAX_DEFAULT;
+                const final = Math.min(colMax, Math.max(COL_MIN, maxWidth + PAD));
+                columnWidths.push(final);
+                col.width = final;
+            }
+
+            // Row height: calculate based on wrap for each row
+            const BASE_HEIGHT = 15;
+            const LINE_HEIGHT = 15;
+
+            for (let r = 2; r <= sheet.rowCount; r++) {
+                const row = sheet.getRow(r);
+                let maxLines = 1;
+
+                for (let c = 1; c <= sheet.columnCount; c++) {
+                    const cell = row.getCell(c);
+                    const val = cell.value;
+                    if (val === null || val === undefined || val === '') continue;
+                    if (typeof val === 'object' && 'formula' in val) continue;
+
+                    const colWidth = columnWidths[c - 1];
+                    const str = String(val);
+                    const lines = str.split(/\r?\n/);
+                    let cellLines = 0;
+
+                    for (const line of lines) {
+                        let lineW = 0;
+                        for (const ch of line) {
+                            lineW += ch.charCodeAt(0) > 0x2E80 ? 2 : 1;
+                        }
+                        cellLines += Math.max(1, Math.ceil(lineW / colWidth));
+                    }
+
+                    if (cellLines > maxLines) maxLines = cellLines;
+                }
+
+                if (maxLines > 1) {
+                    row.height = BASE_HEIGHT + (maxLines - 1) * LINE_HEIGHT;
+                }
+            }
+        }
+
+        this.updateProgress('Guardando...');
         await workbook.xlsx.writeFile(outputPath);
 
-        this.onProgress('Limpiando estilos residuales del archivo...');
-        this.updateProgress('Limpiando estilos residuales del archivo...');
+        this.updateProgress('Limpiando...');
         await this.cleanupXlsxFile(outputPath);
 
-        this.onProgress('Proceso finalizado correctamente.');
-        this.updateProgress('Proceso finalizado correctamente.');
+        this.updateProgress('Listo');
 
         return stats;
     }

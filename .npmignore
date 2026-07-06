@@ -1,0 +1,71 @@
+# Source code
+src/
+tsconfig.json
+tsconfig*.json
+
+# Development files
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp
+.pnp.js
+
+# Build output (will be rebuilt on install)
+dist/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Test files
+test/
+tests/
+__tests__/
+*.test.ts
+*.spec.ts
+coverage/
+.nyc_output/
+
+# Documentation source
+docs/
+*.md
+!README.md
+
+# Example files
+examples/
+sample/
+*.xlsx
+!facturas_electronicas_1001859030001_2026_06.xlsx
+
+# Scripts and configuration
+scripts/
+.github/
+.git/
+.gitignore
+.npmignore
+.eslintrc*
+.prettierrc*
+babel.config*
+jest.config*
+webpack.config*
+rollup.config*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
+*.log
+*.tmp
+
+# License (will be included separately)
+LICENSE
