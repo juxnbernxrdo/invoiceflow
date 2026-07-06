@@ -21,4 +21,5 @@ export interface FileJob {
     stats?: TransformStats;
     error?: string;
     outputPath?: string;
+    createdAt: number;
 }
