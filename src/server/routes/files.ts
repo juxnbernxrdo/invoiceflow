@@ -46,6 +46,7 @@ router.post('/', upload.array('files', 20), async (req: Request, res: Response) 
                 id,
                 originalName: file.originalname,
                 status: 'pending',
+                createdAt: Date.now(),
             }, newPath);
             results.push({ id, originalName: file.originalname });
         }
@@ -87,18 +88,21 @@ router.post('/process', async (req: Request, res: Response) => {
             const tempPath = getStore().tempPaths.get(file.id);
             if (!tempPath) continue;
 
-            updateFile(file.id, { status: 'processing' });
+            // Resolve output name: use custom name from client, or fall back to stored value
+            const customName = outputNames?.[file.id] || file.outputName;
 
-            const customName = outputNames?.[file.id];
-            if (customName) {
-                updateFile(file.id, { outputName: customName });
-            }
+            // Persist outputName on the FileJob BEFORE processing
+            updateFile(file.id, {
+                status: 'processing',
+                outputName: customName,
+            });
 
             try {
+                // Pass file.id so processor writes to a unique path (file.id.xlsx)
                 const result = await processFile(tempPath, {
                     tipoGasto,
                     outputName: customName,
-                });
+                }, file.id);
                 updateFile(file.id, {
                     status: 'done',
                     stats: result.stats,
