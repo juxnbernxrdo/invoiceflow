@@ -28,19 +28,17 @@ export interface ProcessResult {
 export async function processFile(
     inputPath: string,
     options: TransformOptions,
+    jobId?: string,
     onProgress?: ProgressCallback
 ): Promise<ProcessResult> {
     const originalName = path.basename(inputPath);
     const outputDir = path.join(os.tmpdir(), 'invoiceflow');
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
-    let outName: string;
-    if (options.outputName) {
-        outName = ensureXlsxExtension(sanitizeOutputName(options.outputName));
-    } else {
-        outName = originalName.replace(/\.(xlsx?|xls)$/i, '') + '_procesado.xlsx';
-    }
-    const outputPath = path.join(outputDir, outName);
+    // Output file is keyed by job ID to prevent collisions when the same
+    // file is processed multiple times with different output names.
+    const uniqueId = jobId || generateId();
+    const outputPath = path.join(outputDir, uniqueId + '.xlsx');
 
     const transformer = new ExcelTransformer(
         () => {},
@@ -50,7 +48,7 @@ export async function processFile(
     const stats = await transformer.transform(inputPath, outputPath, options);
 
     return {
-        id: generateId(),
+        id: uniqueId,
         originalName,
         outputPath,
         stats,
@@ -64,7 +62,7 @@ export async function processFiles(
 ): Promise<ProcessResult[]> {
     const results: ProcessResult[] = [];
     for (let i = 0; i < inputPaths.length; i++) {
-        const result = await processFile(inputPaths[i], options, (cur, total, msg) => {
+        const result = await processFile(inputPaths[i], options, undefined, (cur, total, msg) => {
             if (onFileProgress) {
                 onFileProgress(i, inputPaths.length, (c, t, m) => {});
             }
