@@ -23,17 +23,11 @@ export function ResultPanel({ files }: ResultPanelProps) {
     };
 
     return (
-        <div
-            className="
-                p-4 rounded-2xl border border-white/[0.06]
-                bg-[var(--surface)]
-                fade-in
-            "
-        >
+        <div className="p-4 rounded-2xl border border-border-light bg-surface fade-in">
             <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                    <CheckCircle2 size={18} className="text-green-500" />
-                    <span className="text-sm font-medium text-[var(--text)]">
+                    <CheckCircle2 size={18} className="text-success" />
+                    <span className="text-sm font-medium text-text">
                         Resultados
                     </span>
                 </div>
@@ -42,14 +36,7 @@ export function ResultPanel({ files }: ResultPanelProps) {
                     <button
                         onClick={handleDownloadAll}
                         disabled={downloadingAll}
-                        className="
-                            flex items-center gap-2 px-4 py-2
-                            rounded-xl text-sm font-medium
-                            bg-[var(--accent)] text-white
-                            hover:bg-[var(--accent-hover)]
-                            transition-colors
-                            disabled:opacity-50 disabled:cursor-not-allowed
-                        "
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-accent text-white hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {downloadingAll ? (
                             <>
@@ -68,8 +55,8 @@ export function ResultPanel({ files }: ResultPanelProps) {
 
             <div className="space-y-1">
                 {doneFiles.map(f => (
-                    <div key={f.id} className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-                        <CheckCircle2 size={12} className="text-green-500" />
+                    <div key={f.id} className="flex items-center gap-2 text-sm text-text-muted">
+                        <CheckCircle2 size={12} className="text-success" />
                         <span className="truncate">{f.originalName}</span>
                         <span className="text-xs ml-auto">
                             {f.stats?.finalColumns} col · {f.stats?.recalculatedRows} filas
@@ -77,7 +64,7 @@ export function ResultPanel({ files }: ResultPanelProps) {
                     </div>
                 ))}
                 {errorFiles.map(f => (
-                    <div key={f.id} className="flex items-center gap-2 text-sm text-red-400">
+                    <div key={f.id} className="flex items-center gap-2 text-sm text-danger">
                         <Zap size={12} />
                         <span className="truncate">{f.originalName}</span>
                         <span className="text-xs ml-auto">{f.error}</span>
