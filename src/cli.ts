@@ -79,30 +79,35 @@ function getExcelFiles(): FileItem[] {
     return list;
 }
 
-export function getUniqueOutputPath(inputDir: string, index: number, customName?: string): string {
-    let baseName: string;
-    if (customName) {
-        const sanitized = customName.replace(/[/\\]/g, '');
-        baseName = sanitized.endsWith('.xlsx') ? sanitized : sanitized + '.xlsx';
-    } else {
-        baseName = 'FACTURAS ELECTRÓNICAS.xlsx';
-    }
+async function promptTipoGasto(): Promise<string> {
+    const response = await prompts({
+        type: 'select',
+        name: 'tipo',
+        message: 'Tipo de gasto',
+        choices: [
+            { title: 'EMPRESARIAL', value: 'EMPRESARIAL' },
+            { title: 'PERSONAL', value: 'PERSONAL' },
+        ],
+        initial: 0,
+    });
+    return response.tipo || 'EMPRESARIAL';
+}
 
-    if (index === 0) {
-        const attempt = path.join(inputDir, baseName);
-        if (!fs.existsSync(attempt)) {
-            return attempt;
-        }
-    }
-    const withoutExt = baseName.replace(/\.xlsx$/i, '');
-    let i = index === 0 ? 1 : index;
-    while (true) {
-        const attempt = path.join(inputDir, `${withoutExt} (${i}).xlsx`);
-        if (!fs.existsSync(attempt)) {
-            return attempt;
-        }
-        i++;
-    }
+async function promptOutputName(defaultName: string = 'FACTURAS ELECTRÓNICAS'): Promise<string> {
+    const response = await prompts({
+        type: 'text',
+        name: 'name',
+        message: 'Nombre del archivo de salida:',
+        initial: defaultName,
+        validate: (value: string) => {
+            const cleaned = value.replace(/\.xlsx$/i, '').trim();
+            if (!cleaned) return 'El nombre no puede estar vacío';
+            if (/[\/\\]/.test(cleaned)) return 'El nombre no puede contener / o \\';
+            return true;
+        },
+    });
+    const name = (response.name || defaultName).trim();
+    return name.endsWith('.xlsx') ? name : name + '.xlsx';
 }
 
 function createProgressBar(): cliProgress.SingleBar {
@@ -141,8 +146,8 @@ function getSuggestionForError(errorMessage: string): string {
 
 async function processFiles(
     filePaths: string[],
-    tipoGasto?: string,
-    outputNames?: Map<number, string>
+    tipoGasto: string,
+    outputName: string
 ): Promise<boolean> {
     const resolvedFiles: { original: string; resolved: string; isValid: boolean; error?: string }[] = [];
     
@@ -182,8 +187,7 @@ async function processFiles(
         }
 
         const inputDir = path.dirname(resolved);
-        const customName = outputNames?.get(idx);
-        const outPath = getUniqueOutputPath(inputDir, idx, customName);
+        const outPath = path.join(inputDir, outputName);
 
         progressBar.start(100, 0, { filename: path.basename(original) });
 
@@ -231,39 +235,27 @@ export async function run() {
         .description('Transformar archivos Excel mediante instrucciones predefinidas.')
         .version('1.0.3')
         .option('--tipo-gasto <value>', 'Tipo de gasto para la columna TIPO GASTO (default: EMPRESARIAL)')
-        .option('--output-name <name>', 'Nombre personalizado para el archivo de salida')
         .argument('[files...]', 'Archivos Excel a transformar')
-        .action(async (files: string[], options: { tipoGasto?: string; outputName?: string }) => {
+        .action(async (files: string[], options: { tipoGasto?: string }) => {
             if (files && files.length > 0) {
-                // Command line mode (Banner only once)
                 console.log(ASCII_ART);
 
-                let outputNames: Map<number, string> | undefined;
+                const tipoGasto = options.tipoGasto || await promptTipoGasto();
 
-                // If --output-name provided with multiple files, prompt for each name
-                if (options.outputName && files.length > 1) {
+                if (files.length === 1) {
+                    const outputName = await promptOutputName();
+                    await processFiles(files, tipoGasto, outputName);
+                } else {
                     console.log('\n  Archivos a procesar:');
                     files.forEach((f, i) => console.log(`    ${i + 1}. ${path.basename(f)}`));
                     console.log('');
 
-                    outputNames = new Map();
                     for (let i = 0; i < files.length; i++) {
-                        const response = await prompts({
-                            type: 'text',
-                            name: 'name',
-                            message: `Nombre de salida para ${path.basename(files[i])}:`,
-                            initial: options.outputName,
-                        });
-                        if (response.name && response.name.trim()) {
-                            outputNames.set(i, response.name.trim());
-                        }
+                        const baseName = path.basename(files[i]).replace(/\.(xlsx?|xls)$/i, '');
+                        const outputName = await promptOutputName(baseName);
+                        await processFiles([files[i]], tipoGasto, outputName);
                     }
-                } else if (options.outputName && files.length === 1) {
-                    outputNames = new Map();
-                    outputNames.set(0, options.outputName);
                 }
-
-                await processFiles(files, options.tipoGasto, outputNames);
             } else {
                 // Interactive Mode (Banner only once)
                 console.log(ASCII_ART);
@@ -286,7 +278,6 @@ export async function run() {
                 let selectorOpen = false;
                 let selectorAbort: (() => void) | null = null;
                 let prevLine = '';
-                let tipoGastoValue: string | undefined = options.tipoGasto;
 
                 const ensureStdinFlowing = () => {
                     if (process.stdin.isTTY && process.stdin.readable) {
@@ -355,23 +346,6 @@ export async function run() {
                                 pathsToInsert = excelFiles.map(f => `@${f.relativePath}`);
                             } else {
                                 pathsToInsert = response.selected;
-                            }
-
-                            // Prompt for tipo gasto if not provided via CLI flag
-                            if (!tipoGastoValue) {
-                                const tipoResponse = await prompts({
-                                    type: 'select',
-                                    name: 'tipo',
-                                    message: 'Tipo de gasto',
-                                    choices: [
-                                        { title: 'EMPRESARIAL', value: 'EMPRESARIAL' },
-                                        { title: 'PERSONAL', value: 'PERSONAL' },
-                                    ],
-                                    initial: 0,
-                                });
-                                if (tipoResponse.tipo) {
-                                    tipoGastoValue = tipoResponse.tipo;
-                                }
                             }
 
                             const formattedPaths = pathsToInsert.join(' ') + ' ';
@@ -455,32 +429,29 @@ export async function run() {
                     // Parse inputs (split by spaces, considering path strings)
                     const tokens = cleanLine.split(/\s+/).filter(Boolean);
 
-                    // If processing files and no tipo gasto was selected yet, prompt for it
                     const hasExcelFiles = tokens.some(t => t.endsWith('.xlsx') || t.endsWith('.xls'));
-                    if (hasExcelFiles && !tipoGastoValue) {
+                    if (hasExcelFiles) {
                         rl.pause();
-                        const tipoResponse = await prompts({
-                            type: 'select',
-                            name: 'tipo',
-                            message: 'Tipo de gasto',
-                            choices: [
-                                { title: 'EMPRESARIAL', value: 'EMPRESARIAL' },
-                                { title: 'PERSONAL', value: 'PERSONAL' },
-                            ],
-                            initial: 0,
-                        });
-                        if (tipoResponse.tipo) {
-                            tipoGastoValue = tipoResponse.tipo;
+
+                        const tipoGasto = await promptTipoGasto();
+
+                        if (tokens.length === 1) {
+                            const outputName = await promptOutputName();
+                            await processFiles(tokens, tipoGasto, outputName);
+                        } else {
+                            for (let i = 0; i < tokens.length; i++) {
+                                const baseName = path.basename(tokens[i]).replace(/\.(xlsx?|xls)$/i, '');
+                                const outputName = await promptOutputName(baseName);
+                                await processFiles([tokens[i]], tipoGasto, outputName);
+                            }
                         }
+
                         rl.resume();
                         restoreStdinForKeypress();
+                        rl.prompt();
+                    } else {
+                        rl.prompt();
                     }
-
-                    rl.pause();
-                    await processFiles(tokens, tipoGastoValue);
-                    rl.resume();
-                    restoreStdinForKeypress();
-                    rl.prompt();
                 }).on('close', () => {
                     console.log('\n¡Gracias por usar InvoiceFlow! ¡Hasta luego!\n');
                     process.exit(0);
