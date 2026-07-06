@@ -51,18 +51,21 @@ export function downloadUrl(id: string): string {
     return `${BASE}/files/${id}/download`;
 }
 
+export async function downloadFile(file: FileInfo): Promise<void> {
+    const a = document.createElement('a');
+    a.href = downloadUrl(file.id);
+    if (file.outputName) {
+        a.download = file.outputName.endsWith('.xlsx') ? file.outputName : file.outputName + '.xlsx';
+    }
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+
 export async function downloadAll(files: FileInfo[]): Promise<void> {
     const doneFiles = files.filter(f => f.status === 'done');
     for (let i = 0; i < doneFiles.length; i++) {
-        const f = doneFiles[i];
-        const a = document.createElement('a');
-        a.href = downloadUrl(f.id);
-        if (f.outputName) {
-            a.download = f.outputName.endsWith('.xlsx') ? f.outputName : f.outputName + '.xlsx';
-        }
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+        await downloadFile(doneFiles[i]);
         if (i < doneFiles.length - 1) {
             await new Promise(r => setTimeout(r, 300));
         }
