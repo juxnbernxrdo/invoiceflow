@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as readline from 'readline';
+import { exec } from 'child_process';
 import chalk from 'chalk';
 import prompts from 'prompts';
 import * as cliProgress from 'cli-progress';
@@ -20,24 +21,17 @@ const ASCII_ART = `╔═══════════════════�
 ║   ██║██║ ╚████║ ╚████╔╝ ╚██████╔╝██║╚██████╗███████╗       ║
 ║   ╚═╝╚═╝  ╚═══╝  ╚═══╝   ╚═════╝ ╚═╝ ╚═════╝╚══════╝       ║
 ║                                                            ║
-║                     InvoiceFlow CLI                        ║
+║                       invo CLI                            ║
 ║                                                            ║
 ╚════════════════════════════════════════════════════════════╝`;
 
 const QUICK_HELP = `
-Seleccione uno o varios archivos Excel escribiendo @
+Escribe @ para seleccionar archivos Excel
 
-Comandos disponibles
-
-  @            Buscar archivos Excel
-  @ruta        Abrir un archivo específico
-  /quit        Salir de InvoiceFlow CLI
-
-Ejemplos
-
-  @facturas.xlsx
-  @enero.xlsx @febrero.xlsx
-  @./reportes/facturas.xlsx
+  @            Buscar archivos
+  @ruta        Abrir archivo específico
+  /web         Iniciar cliente web
+  /quit        Salir
 `;
 
 interface FileItem {
@@ -87,17 +81,25 @@ function getExcelFiles(): FileItem[] {
     return list;
 }
 
-export function getUniqueOutputPath(inputDir: string, index: number): string {
-    const baseName = 'FACTURAS ELECTRÓNICAS.xlsx';
+export function getUniqueOutputPath(inputDir: string, index: number, customName?: string): string {
+    let baseName: string;
+    if (customName) {
+        const sanitized = customName.replace(/[/\\]/g, '');
+        baseName = sanitized.endsWith('.xlsx') ? sanitized : sanitized + '.xlsx';
+    } else {
+        baseName = 'FACTURAS ELECTRÓNICAS.xlsx';
+    }
+
     if (index === 0) {
         const attempt = path.join(inputDir, baseName);
         if (!fs.existsSync(attempt)) {
             return attempt;
         }
     }
+    const withoutExt = baseName.replace(/\.xlsx$/i, '');
     let i = index === 0 ? 1 : index;
     while (true) {
-        const attempt = path.join(inputDir, `FACTURAS ELECTRÓNICAS (${i}).xlsx`);
+        const attempt = path.join(inputDir, `${withoutExt} (${i}).xlsx`);
         if (!fs.existsSync(attempt)) {
             return attempt;
         }
@@ -139,14 +141,17 @@ function getSuggestionForError(errorMessage: string): string {
     return 'Si el problema persiste, intenta con otro archivo o verifica que el archivo no esté dañado.';
 }
 
-async function processFiles(filePaths: string[]): Promise<boolean> {
+async function processFiles(
+    filePaths: string[],
+    tipoGasto?: string,
+    outputNames?: Map<number, string>
+): Promise<boolean> {
     const resolvedFiles: { original: string; resolved: string; isValid: boolean; error?: string }[] = [];
     
     for (const rawPath of filePaths) {
         let cleanPath = rawPath.startsWith('@') ? rawPath.slice(1) : rawPath;
         if (!cleanPath) continue;
 
-        // Support home directory expansion
         if (cleanPath.startsWith('~')) {
             cleanPath = path.join(os.homedir(), cleanPath.slice(1));
         }
@@ -169,78 +174,53 @@ async function processFiles(filePaths: string[]): Promise<boolean> {
     const processedSuccessfully: string[] = [];
     const skippedFiles: { path: string; reason: string }[] = [];
 
-    // Process each file
     for (let idx = 0; idx < resolvedFiles.length; idx++) {
         const { original, resolved, isValid, error } = resolvedFiles[idx];
 
         if (!isValid) {
-            console.log(chalk.yellow(`\n⚠ Omitiendo archivo inválido: ${original} - Razón: ${error}`));
-            console.log(chalk.gray(`  💡 Sugerencia: ${getSuggestionForError(error || '')}`));
+            console.log(chalk.yellow(`  ⚠ ${original}: ${getSuggestionForError(error || '')}`));
             skippedFiles.push({ path: original, reason: error || 'Archivo inválido' });
             continue;
         }
 
         const inputDir = path.dirname(resolved);
-        const outPath = getUniqueOutputPath(inputDir, idx);
+        const customName = outputNames?.get(idx);
+        const outPath = getUniqueOutputPath(inputDir, idx, customName);
 
-        console.log(chalk.cyan(`\nProcesando archivo ${idx + 1}/${resolvedFiles.length}: ${original}`));
-        console.log(chalk.gray(`Destino de salida: ${outPath}`));
-
-        // Iniciar barra de progreso
         progressBar.start(100, 0, { filename: path.basename(original) });
 
         const transformer = new ExcelTransformer(
-            (msg) => {
-                // La barra de progreso maneja la visualización
-            },
-            (current, total, message) => {
-                const percentage = Math.round((current / total) * 100);
-                progressBar.update(percentage, { filename: path.basename(original) });
+            () => {},
+            (current, total) => {
+                progressBar.update(Math.round((current / total) * 100));
             }
         );
 
         try {
-            const stats = await transformer.transform(resolved, outPath);
-            progressBar.update(100, { filename: path.basename(original) });
+            await transformer.transform(resolved, outPath, { tipoGasto });
+            progressBar.update(100);
             progressBar.stop();
-
-            console.log(chalk.green(`\n✔ ¡Transformación exitosa!`));
-            console.log(chalk.gray(`- Columnas originales: ${stats.originalColumns}`));
-            console.log(chalk.gray(`- Columnas finales: ${stats.finalColumns}`));
-            console.log(chalk.gray(`- Columnas eliminadas: ${stats.deletedColumns.join(', ') || 'Ninguna'}`));
-            if (stats.replacedColumns.length > 0) {
-                console.log(chalk.gray(`- Columnas reemplazadas: ${stats.replacedColumns.map(r => `${r.red} -> ${r.green}`).join(', ')}`));
-            }
-            console.log(chalk.gray(`- Filas recalculadas (tarifa 0%): ${stats.recalculatedRows}`));
-            console.log(chalk.green(`✔ Validación de integridad del archivo de salida superada.`));
+            console.log(chalk.green(`  ✔ ${path.basename(original)} → ${path.basename(outPath)}`));
             processedSuccessfully.push(original);
         } catch (err: any) {
             progressBar.stop();
-            console.error(chalk.red(`\n❌ Error al procesar el archivo "${original}":`));
-            console.error(chalk.red(`   Causa: ${err.message}`));
-            console.log(chalk.gray(`  💡 Sugerencia: ${getSuggestionForError(err.message)}`));
+            console.log(chalk.red(`  ✘ ${original}: ${getSuggestionForError(err.message)}`));
             if (fs.existsSync(outPath)) {
-                try {
-                    fs.unlinkSync(outPath);
-                } catch {}
+                try { fs.unlinkSync(outPath); } catch {}
             }
             skippedFiles.push({ path: original, reason: err.message });
         }
     }
 
-    // Print final execution summary
-    console.log(chalk.blue('\n============================================================='));
-    console.log(chalk.bold('RESUMEN DE EJECUCIÓN:'));
-    console.log(chalk.blue('-------------------------------------------------------------'));
-    console.log(`Archivos procesados correctamente: ${chalk.green(processedSuccessfully.length)}`);
-    if (processedSuccessfully.length > 0) {
-        processedSuccessfully.forEach(f => console.log(`  ✓ ${chalk.green(f)}`));
+    if (resolvedFiles.length > 1) {
+        console.log('');
+        if (processedSuccessfully.length > 0) {
+            console.log(chalk.green(`  ${processedSuccessfully.length} archivo(s) procesado(s)`));
+        }
+        if (skippedFiles.length > 0) {
+            console.log(chalk.red(`  ${skippedFiles.length} archivo(s) omitido(s)`));
+        }
     }
-    console.log(`Archivos omitidos/fallidos: ${chalk.red(skippedFiles.length)}`);
-    if (skippedFiles.length > 0) {
-        skippedFiles.forEach(f => console.log(`  ❌ ${chalk.red(f.path)}: ${chalk.yellow(f.reason)}`));
-    }
-    console.log(chalk.blue('=============================================================\n'));
 
     return processedSuccessfully.length > 0;
 }
@@ -251,15 +231,43 @@ export async function run() {
     const bannerString = applyGradient(ASCII_ART);
 
     program
-        .name('invoiceflow')
+        .name('invo')
         .description('Transformar archivos Excel mediante instrucciones predefinidas.')
-        .version('1.0.1')
+        .version('1.0.3')
+        .option('--tipo-gasto <value>', 'Tipo de gasto para la columna TIPO GASTO (default: EMPRESARIAL)')
+        .option('--output-name <name>', 'Nombre personalizado para el archivo de salida')
         .argument('[files...]', 'Archivos Excel a transformar')
-        .action(async (files: string[]) => {
+        .action(async (files: string[], options: { tipoGasto?: string; outputName?: string }) => {
             if (files && files.length > 0) {
                 // Command line mode (Banner only once)
                 console.log(bannerString);
-                await processFiles(files);
+
+                let outputNames: Map<number, string> | undefined;
+
+                // If --output-name provided with multiple files, prompt for each name
+                if (options.outputName && files.length > 1) {
+                    console.log(chalk.cyan('\n  Archivos a procesar:'));
+                    files.forEach((f, i) => console.log(chalk.white(`    ${i + 1}. ${path.basename(f)}`)));
+                    console.log('');
+
+                    outputNames = new Map();
+                    for (let i = 0; i < files.length; i++) {
+                        const response = await prompts({
+                            type: 'text',
+                            name: 'name',
+                            message: `Nombre de salida para ${path.basename(files[i])}:`,
+                            initial: options.outputName,
+                        });
+                        if (response.name && response.name.trim()) {
+                            outputNames.set(i, response.name.trim());
+                        }
+                    }
+                } else if (options.outputName && files.length === 1) {
+                    outputNames = new Map();
+                    outputNames.set(0, options.outputName);
+                }
+
+                await processFiles(files, options.tipoGasto, outputNames);
             } else {
                 // Interactive Mode (Banner only once)
                 console.log(bannerString);
@@ -279,24 +287,18 @@ export async function run() {
                     process.stdin.setRawMode(true);
                 }
 
-                let handlingInteractiveSelector = false;
-
-                const isAtKey = (str: string | undefined, key: { name?: string; ctrl?: boolean; meta?: boolean; shift?: boolean; }): boolean => {
-                    return str === '@' || key?.name === '@';
-                };
+                let selectorOpen = false;
+                let selectorAbort: (() => void) | null = null;
+                let prevLine = '';
+                let tipoGastoValue: string | undefined = options.tipoGasto;
 
                 const ensureStdinFlowing = () => {
-                    // After rl.pause() and prompts library, stdin may not be in flowing
-                    // state. Explicitly resume it so keypress events fire again.
                     if (process.stdin.isTTY && process.stdin.readable) {
                         process.stdin.resume();
                     }
                 };
 
                 const restoreStdinForKeypress = () => {
-                    // After deep async operations (file processing, prompts library),
-                    // stdin may lose its keypress transformation layer or enter a
-                    // non-flowing state. Re-initialize everything to guarantee @ detection.
                     ensureStdinFlowing();
                     readline.emitKeypressEvents(process.stdin);
                     if (process.stdin.isTTY) {
@@ -304,69 +306,113 @@ export async function run() {
                     }
                 };
 
-                const openFileSelector = async () => {
-                    handlingInteractiveSelector = true;
+                const closeFileSelector = () => {
+                    selectorOpen = false;
+                    if (selectorAbort) {
+                        selectorAbort();
+                        selectorAbort = null;
+                    }
+                };
 
-                    // Pause readline but keep stdin flowing for keypress detection.
-                    // rl.pause() calls process.stdin.pause() which stops keypress
-                    // events from firing — we must restore flowing state afterward.
+                const openFileSelector = async () => {
+                    selectorOpen = true;
                     rl.pause();
 
                     try {
-                        // Clear the typed '@' from screen by writing backspace
                         process.stdout.write('\b \b');
 
                         const excelFiles = getExcelFiles();
                         if (excelFiles.length === 0) {
-                            console.log(chalk.yellow('\n⚠ No se encontraron archivos Excel (.xlsx, .xls) en el directorio actual.'));
+                            console.log(chalk.yellow('\n  No se encontraron archivos Excel en el directorio actual.'));
                             return;
                         }
 
-                        console.log(chalk.cyan('\n🔍 Selector Inteligente de Archivos (Espacio para seleccionar, Enter para confirmar):'));
+                        console.log(chalk.cyan('\n  Archivos Excel disponibles:'));
 
                         const choices = [
-                            { title: '✨ Todos los archivos Excel', value: 'ALL_EXCEL_FILES' },
+                            { title: 'Todos los archivos Excel', value: 'ALL_EXCEL_FILES' },
                             ...excelFiles.map(f => ({
-                                title: `${f.name} (${f.relativePath})`,
-                                description: `Tamaño: ${f.size} | Modificado: ${f.modified}`,
+                                title: f.name,
+                                description: `${f.relativePath} | ${f.size}`,
                                 value: `@${f.relativePath}`
                             }))
                         ];
 
-                        const response = await prompts({
-                            type: 'autocompleteMultiselect',
-                            name: 'selected',
-                            message: 'Selecciona los archivos Excel',
-                            choices: choices,
-                            hint: '- Barra espaciadora para seleccionar. Enter para confirmar.'
+                        let cancelled = false;
+                        const response = await new Promise<any>((resolve) => {
+                            selectorAbort = () => {
+                                cancelled = true;
+                                resolve({ selected: [] });
+                            };
+                            prompts({
+                                type: 'autocompleteMultiselect',
+                                name: 'selected',
+                                message: 'Selecciona archivos',
+                                choices: choices,
+                                hint: 'Espacio para seleccionar, Enter para confirmar'
+                            }).then(resolve).catch(() => resolve({ selected: [] }));
                         });
 
-                        if (response && response.selected && response.selected.length > 0) {
+                        if (!cancelled && response && response.selected && response.selected.length > 0) {
                             let pathsToInsert = [];
                             if (response.selected.includes('ALL_EXCEL_FILES')) {
                                 pathsToInsert = excelFiles.map(f => `@${f.relativePath}`);
                             } else {
                                 pathsToInsert = response.selected;
                             }
+
+                            // Prompt for tipo gasto if not provided via CLI flag
+                            if (!tipoGastoValue) {
+                                const tipoResponse = await prompts({
+                                    type: 'select',
+                                    name: 'tipo',
+                                    message: 'Tipo de gasto',
+                                    choices: [
+                                        { title: 'EMPRESARIAL', value: 'EMPRESARIAL' },
+                                        { title: 'PERSONAL', value: 'PERSONAL' },
+                                    ],
+                                    initial: 0,
+                                });
+                                if (tipoResponse.tipo) {
+                                    tipoGastoValue = tipoResponse.tipo;
+                                }
+                            }
+
                             const formattedPaths = pathsToInsert.join(' ') + ' ';
                             rl.write(formattedPaths);
                         }
                     } catch {
-                        // If prompts fails or is interrupted, ensure we recover
                     } finally {
-                        // Restore readline first, then ensure stdin is flowing
-                        // so that subsequent keypress events (@ detection) work.
+                        selectorAbort = null;
                         rl.resume();
                         restoreStdinForKeypress();
                         rl.prompt();
-                        handlingInteractiveSelector = false;
+                        selectorOpen = false;
                     }
                 };
 
+                // Single listener: handles both open (@ typed) and close (@ removed).
+                // When backspace/delete fires, readline has already updated the line
+                // BEFORE the keypress event, so prevLine vs line correctly detects
+                // whether '@' was removed.
                 process.stdin.on('keypress', async (str, key) => {
-                    if (handlingInteractiveSelector) return;
+                    if (!key) { prevLine = (rl as any).line || ''; return; }
 
-                    if (isAtKey(str, key)) {
+                    const line = (rl as any).line || '';
+
+                    // Detect @ removal: prevLine had @, current line does not
+                    if (selectorOpen && (key.name === 'backspace' || key.name === 'delete')) {
+                        if (prevLine.includes('@') && !line.includes('@')) {
+                            prevLine = line;
+                            closeFileSelector();
+                            return;
+                        }
+                    }
+
+                    prevLine = line;
+
+                    // Detect @ addition: only when selector is not already open
+                    if (!selectorOpen && (str === '@' || key.name === '@')) {
                         await openFileSelector();
                     }
                 });
@@ -389,15 +435,58 @@ export async function run() {
                         return;
                     }
 
+                    // Start web server
+                    if (cleanLine === '/web') {
+                        rl.pause();
+                        const { startServer } = require('./server/index');
+                        const port = 3000;
+                        const url = `http://localhost:${port}`;
+                        console.log(chalk.cyan(`\n  Iniciando InvoiceFlow web en ${url}...`));
+                        await startServer(port);
+
+                        const openCmd = process.platform === 'darwin' ? 'open'
+                            : process.platform === 'win32' ? 'start'
+                            : 'xdg-open';
+                        exec(`${openCmd} ${url}`, (err) => {
+                            if (err) {
+                                console.log(chalk.yellow(`\n  No se pudo abrir el navegador automáticamente.`));
+                                console.log(chalk.white(`  Abre manualmente: ${chalk.cyan(url)}\n`));
+                            }
+                        });
+                        return;
+                    }
+
                     // Parse inputs (split by spaces, considering path strings)
                     const tokens = cleanLine.split(/\s+/).filter(Boolean);
+
+                    // If processing files and no tipo gasto was selected yet, prompt for it
+                    const hasExcelFiles = tokens.some(t => t.endsWith('.xlsx') || t.endsWith('.xls'));
+                    if (hasExcelFiles && !tipoGastoValue) {
+                        rl.pause();
+                        const tipoResponse = await prompts({
+                            type: 'select',
+                            name: 'tipo',
+                            message: 'Tipo de gasto',
+                            choices: [
+                                { title: 'EMPRESARIAL', value: 'EMPRESARIAL' },
+                                { title: 'PERSONAL', value: 'PERSONAL' },
+                            ],
+                            initial: 0,
+                        });
+                        if (tipoResponse.tipo) {
+                            tipoGastoValue = tipoResponse.tipo;
+                        }
+                        rl.resume();
+                        restoreStdinForKeypress();
+                    }
+
                     rl.pause();
-                    await processFiles(tokens);
+                    await processFiles(tokens, tipoGastoValue);
                     rl.resume();
                     restoreStdinForKeypress();
                     rl.prompt();
                 }).on('close', () => {
-                    console.log(chalk.green('\n¡Gracias por usar InvoiceFlow CLI! ¡Hasta luego!\n'));
+                    console.log(chalk.green('\n¡Gracias por usar invo! ¡Hasta luego!\n'));
                     process.exit(0);
                 });
             }
