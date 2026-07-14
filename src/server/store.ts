@@ -2,44 +2,75 @@ import { FileJob } from '../core/types';
 import * as fs from 'fs';
 
 export interface SessionStore {
-    files: Map<string, FileJob>;
-    tempPaths: Map<string, string>;
+    addFile(id: string, job: FileJob, tempPath: string): void;
+    getFile(id: string): FileJob | undefined;
+    getAllFiles(): FileJob[];
+    removeFile(id: string): boolean;
+    updateFile(id: string, updates: Partial<FileJob>): void;
+    getTempPath(id: string): string | undefined;
 }
 
-const store: SessionStore = {
-    files: new Map(),
-    tempPaths: new Map(),
-};
+export class InMemoryStore implements SessionStore {
+    private files: Map<string, FileJob> = new Map();
+    private tempPaths: Map<string, string> = new Map();
+
+    addFile(id: string, job: FileJob, tempPath: string): void {
+        this.files.set(id, job);
+        this.tempPaths.set(id, tempPath);
+    }
+
+    getFile(id: string): FileJob | undefined {
+        return this.files.get(id);
+    }
+
+    getAllFiles(): FileJob[] {
+        return Array.from(this.files.values());
+    }
+
+    removeFile(id: string): boolean {
+        const tempPath = this.tempPaths.get(id);
+        if (tempPath) {
+            try { fs.unlinkSync(tempPath); } catch {}
+            this.tempPaths.delete(id);
+        }
+        return this.files.delete(id);
+    }
+
+    updateFile(id: string, updates: Partial<FileJob>): void {
+        const existing = this.files.get(id);
+        if (existing) {
+            this.files.set(id, { ...existing, ...updates });
+        }
+    }
+
+    getTempPath(id: string): string | undefined {
+        return this.tempPaths.get(id);
+    }
+}
+
+// Default store instance (backward compatible)
+const defaultStore = new InMemoryStore();
 
 export function getStore(): SessionStore {
-    return store;
+    return defaultStore;
 }
 
 export function addFile(id: string, job: FileJob, tempPath: string): void {
-    store.files.set(id, job);
-    store.tempPaths.set(id, tempPath);
+    defaultStore.addFile(id, job, tempPath);
 }
 
 export function getFile(id: string): FileJob | undefined {
-    return store.files.get(id);
+    return defaultStore.getFile(id);
 }
 
 export function getAllFiles(): FileJob[] {
-    return Array.from(store.files.values());
+    return defaultStore.getAllFiles();
 }
 
 export function removeFile(id: string): boolean {
-    const tempPath = store.tempPaths.get(id);
-    if (tempPath) {
-        try { fs.unlinkSync(tempPath); } catch {}
-        store.tempPaths.delete(id);
-    }
-    return store.files.delete(id);
+    return defaultStore.removeFile(id);
 }
 
 export function updateFile(id: string, updates: Partial<FileJob>): void {
-    const existing = store.files.get(id);
-    if (existing) {
-        store.files.set(id, { ...existing, ...updates });
-    }
+    defaultStore.updateFile(id, updates);
 }

@@ -1,6 +1,7 @@
 export interface TransformOptions {
     tipoGasto?: string;
     outputName?: string;
+    module?: string;
 }
 
 export interface TransformStats {
@@ -18,6 +19,7 @@ export interface FileJob {
     originalName: string;
     outputName?: string;
     status: 'pending' | 'processing' | 'done' | 'error';
+    module?: string;
     stats?: TransformStats;
     error?: string;
     outputPath?: string;

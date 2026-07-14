@@ -4,7 +4,9 @@ import { useStore } from '../store';
 import { FileCard } from './FileCard';
 
 export function FileZone() {
-    const files = useStore(s => s.files);
+    const allFiles = useStore(s => s.files);
+    const selectedModule = useStore(s => s.selectedModule);
+    const files = allFiles.filter(f => f.module === selectedModule.id);
     const addFiles = useStore(s => s.addFiles);
     const isUploading = useStore(s => s.isUploading);
     const [isDragging, setIsDragging] = useState(false);

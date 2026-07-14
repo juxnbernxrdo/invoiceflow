@@ -5,6 +5,7 @@ export interface FileInfo {
     originalName: string;
     outputName?: string;
     status: 'pending' | 'processing' | 'done' | 'error';
+    module?: string;
     stats?: {
         originalColumns: number;
         finalColumns: number;
@@ -14,9 +15,10 @@ export interface FileInfo {
     error?: string;
 }
 
-export async function uploadFiles(files: File[], tipoGasto: string): Promise<{ files: { id: string; originalName: string }[] }> {
+export async function uploadFiles(files: File[], moduleId: string, tipoGasto: string): Promise<{ files: { id: string; originalName: string }[] }> {
     const formData = new FormData();
     files.forEach(f => formData.append('files', f));
+    formData.append('moduleId', moduleId);
     formData.append('tipoGasto', tipoGasto);
 
     const res = await fetch(`${BASE}/files`, { method: 'POST', body: formData });
@@ -35,13 +37,14 @@ export async function removeFile(id: string): Promise<void> {
 }
 
 export async function processFiles(
+    moduleId: string,
     tipoGasto: string,
     outputNames?: Record<string, string>
 ): Promise<any> {
     const res = await fetch(`${BASE}/files/process`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipoGasto, outputNames }),
+        body: JSON.stringify({ moduleId, tipoGasto, outputNames }),
     });
     if (!res.ok) throw new Error((await res.json()).error);
     return res.json();

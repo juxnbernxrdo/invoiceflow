@@ -1,6 +1,6 @@
 {
   "name": "invoiceflow-cli",
-  "version": "1.0.3",
+  "version": "1.2.0",
   "description": "CLI tool to transform electronic invoice Excel files, removing unnecessary columns and calculating tax fields automatically.",
   "main": "dist/index.js",
   "bin": {
@@ -17,10 +17,11 @@
     "build:all": "npm run build && npm run build:web",
     "dev:web": "npx vite",
     "start:web": "node dist/server/index.js",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "npm run build:all",
     "start": "ts-node src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "clean": "rm -rf dist src/web/dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist",
     "rebuild": "npm run clean && npm run build:all",
     "postinstall": "chmod +x dist/index.js || true"
   },
@@ -50,22 +51,17 @@
     "arm64"
   ],
   "dependencies": {
-    "@tailwindcss/vite": "^4.3.2",
     "cli-progress": "^3.12.0",
     "commander": "^15.0.0",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
-    "lucide-react": "^1.23.0",
+    "jszip": "^3.10.1",
     "multer": "^2.2.0",
     "prompts": "^2.4.2",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "tailwindcss": "^4.3.2",
-    "uuid": "^14.0.1",
-    "xlsx": "^0.18.5",
-    "zustand": "^5.0.14"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
     "@types/cli-progress": "^3.11.6",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.2.0",
@@ -73,10 +69,15 @@
     "@types/prompts": "^2.4.9",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^6.0.3",
+    "lucide-react": "^1.23.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwindcss": "^4.3.2",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3",
-    "vite": "^8.1.3"
+    "vite": "^8.1.3",
+    "vitest": "^4.1.10",
+    "zustand": "^5.0.14"
   }
 }

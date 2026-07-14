@@ -1,99 +1,17 @@
 import * as ExcelJS from 'exceljs';
-import * as JSZip from 'jszip';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as XLSX from 'xlsx';
-import { classifyColor, ColorFamily } from './utils/colors';
+import { classifyColor } from './utils/colors';
 import { colIndexToLabel, translateFormula } from './utils/formulas';
+import { TransformOptions, TransformStats, ProgressCallback } from './core/types';
+import { SEMANTIC_RULES, TransformRules } from './core/semantic-rules';
+import { ColumnInfo, readColumns, matchDeleted, matchHeader } from './core/column-detector';
+import { applyOutputFormatting, applyVentasOutputFormatting } from './core/excel-formatter';
+import { cleanupXlsxFile } from './core/style-cleaner';
 
-export interface TransformOptions {
-    tipoGasto?: string;
-}
-
-export interface TransformStats {
-    originalColumns: number;
-    finalColumns: number;
-    deletedColumns: string[];
-    replacedColumns: { red: string; green: string }[];
-    recalculatedRows: number;
-}
-
-export type ProgressCallback = (current: number, total: number, message: string) => void;
-
-export interface TransformRules {
-    deleteHeaders: string[];
-    sumHeaders: string[];
-    targetHeader: string;
-    targetHumanNames: string[];
-    replacements: { fromHeader: string; toHeader: string }[];
-    fixedColumns: { header: string; value: any; position: 'after' | 'before'; refHeader: string }[];
-}
-
-// Semantic rules: 26-column input → 12-column output.
-// Columns are identified by header meaning, NOT by color or position.
-const SEMANTIC_RULES: TransformRules = {
-    // Columns to DELETE from output (14 columns)
-    deleteHeaders: [
-        'tpcomproba',     // tipo comprobante
-        'numautori',      // número autorización
-        'fecautori',      // fecha autorización
-        'placa',          // placa vehicular
-        'nro_item',       // número ítem
-        'codprincipal',   // código principal producto
-        'codauxiliar',    // código auxiliar producto
-        'cantidad',       // cantidad
-        'precio_u',       // precio unitario
-        'descuento',      // descuento
-        'poriva',         // porcentaje IVA
-        'base0',          // base tarifa 0% (used in BASE CERO calc, then deleted)
-        'valice',         // valor ICE (used in BASE CERO calc, then deleted)
-        'exento',         // exento de IVA (used in BASE CERO calc, then deleted)
-        'noobjiva',       // no objeto de IVA (used in BASE CERO calc, then deleted)
-    ],
-
-    // Columns summed to calculate BASE CERO (tarifa 0%)
-    sumHeaders: [
-        'base0',          // base tarifa 0%
-        'valice',         // valor ICE
-        'exento',         // exento de IVA
-        'noobjiva',       // no objeto de IVA
-    ],
-
-    // irbpnr is NOT a sum column — it's a legacy column that gets deleted.
-    // Its value is NOT used in the output. BASE CERO is recalculated from sumHeaders.
-
-    // Target column that receives the sum of sumHeaders.
-    // In the output this appears as "BASE CERO".
-    targetHeader: 'irbpnr',
-    targetHumanNames: ['base cero', 'base0'],
-
-    // Column header replacements (technical → human-readable output header)
-    replacements: [
-        { fromHeader: 'idrecep', toHeader: 'ID RECEPTOR' },
-        { fromHeader: 'secuenciales', toHeader: 'SECUENCIAL ' },
-        { fromHeader: 'ruc_emisor', toHeader: 'RUC EMISOR' },
-        { fromHeader: 'razonsocial', toHeader: 'RAZÓN SOCIAL' },
-        { fromHeader: 'fechaemi', toHeader: 'FECHA EMISIÓN' },
-        { fromHeader: 'claveacceso', toHeader: 'CLAVE ACCESO' },
-        { fromHeader: 'descripcion', toHeader: 'DESCRIPCIÓN' },
-        { fromHeader: 'baseimp', toHeader: 'BASE  IVA' },
-        { fromHeader: 'valiva', toHeader: 'IVA' },
-        { fromHeader: 'precio_t', toHeader: 'TOTAL' },
-    ],
-
-    // Fixed columns inserted into the output (not from input)
-    // value is a placeholder — actual value comes from TransformOptions.tipoGasto
-    fixedColumns: [
-        { header: 'TIPO GASTO', value: '', position: 'after', refHeader: 'descripcion' },
-    ],
-};
-
-interface ColumnInfo {
-    index: number;
-    headerTechnical: string | null;
-    headerHuman: string | null;
-    colorFamily: ColorFamily; // Color detected in data rows (row 3+)
-}
+export { TransformOptions, TransformStats, ProgressCallback } from './core/types';
+export { TransformRules } from './core/semantic-rules';
 
 export class ExcelTransformer {
     private onProgress: (msg: string) => void;
@@ -118,14 +36,15 @@ export class ExcelTransformer {
         this.currentStep = 0;
 
         const tipoGastoValue = options?.tipoGasto || 'EMPRESARIAL';
+        const moduleId = options?.module || 'facturas';
 
         const workbook = new ExcelJS.Workbook();
-        
+
         // Check if file is .xls (old format) - need to convert first
         const ext = path.extname(inputPath).toLowerCase();
         let fileToRead = inputPath;
         let tempXlsxPath = '';
-        
+
         if (ext === '.xls') {
             // Convert .xls to .xlsx using SheetJS (suppress all output)
             const origLog = console.log;
@@ -157,13 +76,9 @@ export class ExcelTransformer {
                 process.stderr.write = origStderrWrite;
             }
         }
-        
+
         await workbook.xlsx.readFile(fileToRead);
-        
-        if (tempXlsxPath) {
-            try { fs.unlinkSync(tempXlsxPath); } catch {}
-        }
-        
+
         this.updateProgress('Archivo cargado');
 
         const stats: TransformStats = {
@@ -174,12 +89,27 @@ export class ExcelTransformer {
             recalculatedRows: 0,
         };
 
+        if (moduleId === 'retenciones') {
+            const { TransformRetencionesUseCase } = await import('./modules/retenciones');
+            const useCase = new TransformRetencionesUseCase();
+            await useCase.execute(workbook, outputPath, stats);
+            if (tempXlsxPath) {
+                try { fs.unlinkSync(tempXlsxPath); } catch {}
+            }
+            this.updateProgress('Listo');
+            return stats;
+        }
+
+        if (tempXlsxPath) {
+            try { fs.unlinkSync(tempXlsxPath); } catch {}
+        }
+
         for (const sheet of workbook.worksheets) {
             stats.originalColumns = Math.max(stats.originalColumns, sheet.columnCount);
 
-            const columns = this.readColumns(sheet);
+            const columns = readColumns(sheet);
 
-            const deletedCols = this.matchDeleted(columns);
+            const deletedCols = matchDeleted(columns);
             stats.deletedColumns.push(...deletedCols.map(c => c.headerTechnical || `Columna ${c.index}`));
 
             // Build set of column indices to exclude (deleted)
@@ -248,7 +178,7 @@ export class ExcelTransformer {
             }
 
             const outputCols: OutputCol[] = [];
-            const sumCols = columns.filter(c => this.matchHeader(c, SEMANTIC_RULES.sumHeaders));
+            const sumCols = columns.filter(c => matchHeader(c, SEMANTIC_RULES.sumHeaders));
             let baseCeroInserted = false;
 
             for (const col of keptCols) {
@@ -439,323 +369,18 @@ export class ExcelTransformer {
 
         // Apply output formatting to match reference style
         for (const sheet of workbook.worksheets) {
-            if (sheet.rowCount === 0) continue;
-
-            // 1. Auto filter (all columns except last)
-            const lastCol = sheet.columnCount > 1 ? sheet.columnCount - 1 : sheet.columnCount;
-            const lastColLetter = String.fromCharCode(64 + lastCol);
-            sheet.autoFilter = `A1:${lastColLetter}${sheet.rowCount}`;
-
-            // 2. Freeze panes at row 2 (freeze header)
-            sheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-            // 3. Header row formatting (row 1)
-            const headerRow = sheet.getRow(1);
-            headerRow.height = 31.2;
-            for (let c = 1; c <= sheet.columnCount; c++) {
-                const cell = headerRow.getCell(c);
-                cell.font = { bold: true, size: 12, name: 'Arial' };
-                cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-            }
-
-            // 4. Data rows formatting
-            const centerCols = new Set([1, 2, 3, 5, 6, 8, 9, 10, 11, 12]);
-            const leftCols = new Set([4, 7]);
-            const numberCols = new Set([9, 10, 11, 12]); // I,J,K,L
-            const dateCol = 5;
-
-            for (let r = 2; r <= sheet.rowCount; r++) {
-                const row = sheet.getRow(r);
-                for (let c = 1; c <= sheet.columnCount; c++) {
-                    const cell = row.getCell(c);
-                    cell.font = { size: 12, name: 'Arial' };
-
-                    if (centerCols.has(c)) {
-                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-                    } else if (leftCols.has(c)) {
-                        cell.alignment = { horizontal: 'left', vertical: 'middle' };
-                    }
-
-                    if (numberCols.has(c)) {
-                        cell.numFmt = '#,##0.00';
-                    }
-                    if (c === dateCol) {
-                        cell.numFmt = 'mm-dd-yy';
-                    }
-                }
-            }
-
-            // 5. Auto-width and row height
-            const COL_MIN = 8;
-            const COL_MAX_DEFAULT = 50;
-            const COL_MAX_TEXT = 80;
-            const PAD = 2;
-            const CHAR_WIDTH: Record<string, number> = {
-                'mm-dd-yy': 10,
-                '#,##0.00': 10,
-                '$#,##0.00': 11,
-                '0%': 6,
-            };
-            // Columns that hold long text (RAZÓN SOCIAL, DESCRIPCIÓN)
-            const textCols = new Set([4, 7]);
-
-            const columnWidths: number[] = [];
-
-            for (let c = 1; c <= sheet.columnCount; c++) {
-                let maxWidth = 0;
-                const col = sheet.getColumn(c);
-                const numFmt = col.numFmt || 'General';
-                const fmtWidth = CHAR_WIDTH[numFmt] || 0;
-
-                for (let r = 1; r <= sheet.rowCount; r++) {
-                    const cell = sheet.getRow(r).getCell(c);
-                    const val = cell.value;
-                    if (val === null || val === undefined || val === '') continue;
-
-                    let w: number;
-                    if (typeof val === 'number') {
-                        w = fmtWidth || String(val).length;
-                    } else if (val instanceof Date) {
-                        w = fmtWidth || 10;
-                    } else if (typeof val === 'object' && 'formula' in val) {
-                        const result = (val as any).result;
-                        w = fmtWidth || (result != null ? String(result).length : 8);
-                    } else {
-                        const str = String(val);
-                        w = 0;
-                        for (const ch of str) {
-                            w += ch.charCodeAt(0) > 0x2E80 ? 2 : 1;
-                        }
-                    }
-                    if (w > maxWidth) maxWidth = w;
-                }
-
-                // Header width (bold adds ~10%)
-                const headerCell = sheet.getRow(1).getCell(c);
-                const headerVal = headerCell.value;
-                if (headerVal) {
-                    let hw = 0;
-                    for (const ch of String(headerVal)) {
-                        hw += ch.charCodeAt(0) > 0x2E80 ? 2 : 1;
-                    }
-                    hw = Math.ceil(hw * 1.1);
-                    if (hw > maxWidth) maxWidth = hw;
-                }
-
-                const colMax = textCols.has(c) ? COL_MAX_TEXT : COL_MAX_DEFAULT;
-                const final = Math.min(colMax, Math.max(COL_MIN, maxWidth + PAD));
-                columnWidths.push(final);
-                col.width = final;
-            }
-
-            // Row height: calculate based on wrap for each row
-            const BASE_HEIGHT = 15;
-            const LINE_HEIGHT = 15;
-
-            for (let r = 2; r <= sheet.rowCount; r++) {
-                const row = sheet.getRow(r);
-                let maxLines = 1;
-
-                for (let c = 1; c <= sheet.columnCount; c++) {
-                    const cell = row.getCell(c);
-                    const val = cell.value;
-                    if (val === null || val === undefined || val === '') continue;
-                    if (typeof val === 'object' && 'formula' in val) continue;
-
-                    const colWidth = columnWidths[c - 1];
-                    const str = String(val);
-                    const lines = str.split(/\r?\n/);
-                    let cellLines = 0;
-
-                    for (const line of lines) {
-                        let lineW = 0;
-                        for (const ch of line) {
-                            lineW += ch.charCodeAt(0) > 0x2E80 ? 2 : 1;
-                        }
-                        cellLines += Math.max(1, Math.ceil(lineW / colWidth));
-                    }
-
-                    if (cellLines > maxLines) maxLines = cellLines;
-                }
-
-                if (maxLines > 1) {
-                    row.height = BASE_HEIGHT + (maxLines - 1) * LINE_HEIGHT;
-                }
-            }
+            applyOutputFormatting(sheet);
         }
 
         this.updateProgress('Guardando...');
         await workbook.xlsx.writeFile(outputPath);
 
         this.updateProgress('Limpiando...');
-        await this.cleanupXlsxFile(outputPath);
+        await cleanupXlsxFile(outputPath);
 
         this.updateProgress('Listo');
 
         return stats;
-    }
-
-    private readColumns(sheet: ExcelJS.Worksheet): ColumnInfo[] {
-        const h1 = sheet.getRow(1);
-        const h2 = sheet.getRow(2);
-        const cols: ColumnInfo[] = [];
-        for (let i = 1; i <= sheet.columnCount; i++) {
-            // Priority: data rows (blue/purple/yellow) > row 2 (green) > row 1 (red)
-            let detectedColor: ColorFamily = 'none';
-            
-            // First check data rows for blue/purple/yellow (highest priority)
-            for (let r = 3; r <= Math.min(sheet.rowCount, 10); r++) {
-                const cell = sheet.getRow(r).getCell(i);
-                if (cell.fill?.type === 'pattern' && cell.fill.fgColor?.argb) {
-                    const color = classifyColor(cell.fill.fgColor.argb);
-                    if (color === 'blue' || color === 'purple' || color === 'yellow') {
-                        detectedColor = color;
-                        break;
-                    }
-                }
-            }
-            
-            // If no blue/purple/yellow found, check row 2 for green
-            if (detectedColor === 'none') {
-                const cellR2 = h2.getCell(i);
-                if (cellR2.fill?.type === 'pattern' && cellR2.fill.fgColor?.argb) {
-                    const color = classifyColor(cellR2.fill.fgColor.argb);
-                    if (color === 'green') {
-                        detectedColor = 'green';
-                    }
-                }
-            }
-            
-            // If still no color, check row 1 for red
-            if (detectedColor === 'none') {
-                const cellR1 = h1.getCell(i);
-                if (cellR1.fill?.type === 'pattern' && cellR1.fill.fgColor?.argb) {
-                    const color = classifyColor(cellR1.fill.fgColor.argb);
-                    if (color === 'red') {
-                        detectedColor = 'red';
-                    }
-                }
-            }
-            
-            cols.push({
-                index: i,
-                headerTechnical: h1.getCell(i).value ? String(h1.getCell(i).value).trim() : null,
-                headerHuman: h2.getCell(i).value ? String(h2.getCell(i).value).trim() : null,
-                colorFamily: detectedColor,
-            });
-        }
-        return cols;
-    }
-
-    private matchDeleted(columns: ColumnInfo[]): ColumnInfo[] {
-        // Match by color (yellow) AND by header names (deleteHeaders)
-        const yellowCols = columns.filter(c => c.colorFamily === 'yellow');
-        const headerCols = columns.filter(c => this.matchHeader(c, SEMANTIC_RULES.deleteHeaders));
-        
-        // Combine both sets (removing duplicates)
-        const deletedIndices = new Set<number>();
-        const result: ColumnInfo[] = [];
-        
-        for (const col of [...yellowCols, ...headerCols]) {
-            if (!deletedIndices.has(col.index)) {
-                deletedIndices.add(col.index);
-                result.push(col);
-            }
-        }
-        
-        return result;
-    }
-
-    private matchHeader(col: ColumnInfo, targetHeaders: string[]): boolean {
-        return this.matchHeaderSingle(col, null, targetHeaders) ||
-            (col.headerTechnical !== null && targetHeaders.includes(col.headerTechnical.toLowerCase()));
-    }
-
-    private matchHeaderSingle(col: ColumnInfo, technicalTarget: string | null, humanTargets: string[]): boolean {
-        if (technicalTarget && col.headerTechnical?.toLowerCase() === technicalTarget.toLowerCase()) return true;
-        if (col.headerHuman) {
-            const h = col.headerHuman.toLowerCase();
-            for (const t of humanTargets) {
-                if (h === t.toLowerCase()) return true;
-            }
-        }
-        return false;
-    }
-
-    // Post-save cleanup: remove orphaned fill definitions from the xlsx zip.
-    // ExcelJS may retain fill entries (e.g. yellow/blue highlights) that no active cell uses.
-    // This strips them so the output file contains zero visual artifacts from the reference.
-    private async cleanupXlsxFile(filePath: string): Promise<void> {
-        const data = fs.readFileSync(filePath);
-        const zip = await JSZip.loadAsync(data);
-
-        const stylesFile = zip.file('xl/styles.xml');
-        if (!stylesFile) return;
-
-        let stylesXml = await stylesFile.async('string');
-
-        // 1. Find which xf (cell style) indices are actually used by cells in any sheet
-        const activeXfIds = new Set<number>();
-        for (const filename of Object.keys(zip.files)) {
-            if (!filename.startsWith('xl/worksheets/sheet')) continue;
-            const sheetFile = zip.file(filename);
-            if (!sheetFile) continue;
-            const sheetXml = await sheetFile.async('string');
-            for (const m of sheetXml.matchAll(/<c\s[^>]*?s="(\d+)"/g)) {
-                activeXfIds.add(parseInt(m[1], 10));
-            }
-        }
-
-        // 2. Parse cellXfs entries in order and find fillIds used by active xf entries
-        const cellXfsMatch = stylesXml.match(/<cellXfs[^>]*>([\s\S]*?)<\/cellXfs>/);
-        const activeFillIds = new Set<number>([0]); // always keep fillId 0 (none)
-
-        if (cellXfsMatch) {
-            const xfRe = /<xf\s[\s\S]*?\/>/g;
-            let xfIdx = 0;
-            let xfMatch: RegExpExecArray | null;
-            while ((xfMatch = xfRe.exec(cellXfsMatch[1])) !== null) {
-                if (activeXfIds.has(xfIdx)) {
-                    const fid = xfMatch[0].match(/fillId="(\d+)"/);
-                    if (fid) activeFillIds.add(parseInt(fid[1], 10));
-                }
-                xfIdx++;
-            }
-        }
-
-        // 3. Parse individual <fill>...</fill> tags, keep only active ones
-        const fillTagRe = /<fill>[\s\S]*?<\/fill>/g;
-        const keptFills: string[] = [];
-        const fillIndexMap = new Map<number, number>();
-        let fillIdx = 0;
-        let m: RegExpExecArray | null;
-
-        while ((m = fillTagRe.exec(stylesXml)) !== null) {
-            if (activeFillIds.has(fillIdx)) {
-                fillIndexMap.set(fillIdx, keptFills.length);
-                keptFills.push(m[0]);
-            }
-            fillIdx++;
-        }
-
-        if (keptFills.length === fillIdx) return;
-
-        // 4. Replace the <fills> block
-        stylesXml = stylesXml.replace(
-            /<fills[^>]*>[\s\S]*?<\/fills>/,
-            `<fills count="${keptFills.length}">${keptFills.join('')}</fills>`
-        );
-
-        // 5. Update fillId references: remap old indices to new ones
-        stylesXml = stylesXml.replace(/fillId="(\d+)"/g, (_: string, oldId: string) => {
-            const newId = fillIndexMap.get(parseInt(oldId, 10));
-            return `fillId="${newId !== undefined ? newId : 0}"`;
-        });
-
-        // 6. Write back
-        zip.file('xl/styles.xml', stylesXml);
-        const output = await zip.generateAsync({ type: 'nodebuffer' });
-        fs.writeFileSync(filePath, output);
     }
 
 }

@@ -1,12 +1,15 @@
 import { create } from 'zustand';
 import { FileInfo, uploadFiles, listFiles, removeFile as apiRemove, processFiles as apiProcess } from './api';
+import { MODULES, ModuleDefinition } from '../core/modules';
 
 interface AppStore {
     files: FileInfo[];
+    selectedModule: ModuleDefinition;
     tipoGasto: string;
     isProcessing: boolean;
     isUploading: boolean;
     outputNames: Record<string, string>;
+    setModule: (module: ModuleDefinition) => void;
     setTipoGasto: (v: string) => void;
     setOutputName: (id: string, name: string) => void;
     addFiles: (files: File[]) => Promise<void>;
@@ -17,10 +20,13 @@ interface AppStore {
 
 export const useStore = create<AppStore>((set, get) => ({
     files: [],
+    selectedModule: MODULES[0],
     tipoGasto: 'EMPRESARIAL',
     isProcessing: false,
     isUploading: false,
     outputNames: {},
+
+    setModule: (module) => set({ selectedModule: module, tipoGasto: 'EMPRESARIAL' }),
 
     setTipoGasto: (v) => set({ tipoGasto: v }),
 
@@ -31,7 +37,7 @@ export const useStore = create<AppStore>((set, get) => ({
     addFiles: async (files) => {
         set({ isUploading: true });
         try {
-            await uploadFiles(files, get().tipoGasto);
+            await uploadFiles(files, get().selectedModule.id, get().tipoGasto);
             const updated = await listFiles();
             set({ files: updated });
         } finally {
@@ -51,7 +57,7 @@ export const useStore = create<AppStore>((set, get) => ({
     processAll: async () => {
         set({ isProcessing: true });
         try {
-            await apiProcess(get().tipoGasto, get().outputNames);
+            await apiProcess(get().selectedModule.id, get().tipoGasto, get().outputNames);
             const updated = await listFiles();
             set({ files: updated, outputNames: {} });
         } finally {

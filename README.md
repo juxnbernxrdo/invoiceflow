@@ -1,13 +1,13 @@
 # InvoiceFlow
 
-**InvoiceFlow** es una herramienta de terminal y cliente web que transforma archivos de facturación electrónica ecuatoriana en formato Excel, reduciendo 26 columnas a 12 columnas estructuradas listas para análisis contable. Soporta archivos `.xls` y `.xlsx`, y ofrece dos interfaces: CLI interactiva y cliente web con arrastre de archivos.
+**InvoiceFlow** es una herramienta de terminal y cliente web que transforma archivos de facturación electrónica ecuatoriana en formato Excel. Soporta dos módulos: **Facturas** (26 columnas → 12 columnas) y **Retenciones** (40 columnas → 7 columnas). Compatible con archivos `.xls` y `.xlsx`, ofrece dos interfaces: CLI interactiva y cliente web con arrastre de archivos.
 
 ## Características
 
-- **26 columnas → 12 columnas**: eliminación de columnas auxiliares, renombrado semántico, cálculo automático de BASE CERO
+- **Dos módulos**: Facturas (26→12 columnas) y Retenciones (40→7 columnas)
 - **Dos interfaces**: CLI interactiva (terminal) y cliente web (navegador)
 - **Archivos `.xls` y `.xlsx`**: los archivos `.xls` se convierten internamente a `.xlsx`
-- **Modo interactivo**: selector de archivos con `@`, comando `/web` para iniciar el cliente web
+- **Modo interactivo**: selector de archivos con `@`, comandos `/facturas`, `/retenciones`, `/web`
 - **Formato profesional de salida**: encabezados en negrita, filtros automáticos, paneles congelados, anchos dinámicos, formato monetario y de fechas
 - **API REST**: el cliente web se comunica con endpoints Express para subir, procesar y descargar archivos
 
@@ -36,14 +36,14 @@ npm run build
 
 ```bash
 invo --version
-# InvoiceFlow version 1.0.3
+# InvoiceFlow version 1.2.0
 ```
 
 ## Uso
 
 ### CLI — Modo interactivo
 
-Sin argumentos, `invo` inicia el modo interactivo con un banner ASCII y提示：
+Sin argumentos, `invo` inicia el modo interactivo con un banner ASCII y prompt:
 
 ```bash
 invo
@@ -81,8 +81,12 @@ Si eliminas el `@` con Backspace o Delete, el selector se cierra automáticament
 |---------|-------------|
 | `@` | Abrir selector de archivos Excel |
 | `@ruta` | Abrir archivo por ruta específica |
+| `/facturas` | Procesar archivos como facturas (26→12 columnas) |
+| `/retenciones` | Procesar archivos como retenciones (40→7 columnas) |
 | `/web` | Iniciar el cliente web en `http://localhost:3000` |
-| `/quit` | Salir de la CLI |
+| `/help` | Mostrar ayuda y comandos disponibles |
+| `/version` | Mostrar versión |
+| `/exit` | Salir de la CLI |
 
 #### Flujo de procesamiento (modo interactivo)
 
@@ -145,8 +149,9 @@ Accede a `http://localhost:3000`.
 
 #### Funcionalidades
 
+- **Selector de módulo**: elegir entre Facturas o Retenciones antes de procesar
 - **Arrastre de archivos**: arrastrar y soltar o seleccionar archivos `.xls` / `.xlsx` (hasta 20 archivos)
-- **Selector de tipo de gasto**: elegir `EMPRESARIAL` o `PERSONAL` antes de procesar
+- **Selector de tipo de gasto**: elegir `EMPRESARIAL` o `PERSONAL` antes de procesar (solo módulo Facturas)
 - **Nombre de salida personalizado**: cada archivo puede tener un nombre de salida diferente
 - **Procesar todos**: un clic para procesar todos los archivos subidos
 - **Descarga individual**: cada archivo procesado se puede descargar por separado
@@ -311,44 +316,77 @@ El motor de transformación procesa cada archivo en 8 pasos:
 ```
 invoiceflow-cli/
 ├── src/
-│   ├── index.ts                 # Punto de entrada (ejecuta run() desde cli.ts)
-│   ├── cli.ts                   # Lógica CLI: prompts interactivos, selector @,
-│   │                           #   procesamiento, comando /web, progress bar
-│   ├── transformer.ts          # Motor de transformación Excel (ExcelJS).
-│   │                           #   Define SEMANTIC_RULES, formateo de salida,
-│   │                           #   y limpieza post-guardado.
+│   ├── index.ts                 # Punto de entrada (ejecuta run() desde cli/)
+│   ├── cli/
+│   │   ├── index.ts             # Commander + dispatch de comandos
+│   │   ├── interactive.ts       # Modo interactivo (selector @, keypress)
+│   │   ├── processor.ts         # Orquestación de procesamiento CLI
+│   │   ├── progress.ts          # Barra de progreso (cli-progress)
+│   │   ├── prompts.ts           # Prompts: tipo gasto, nombre de salida
+│   │   └── registry.ts          # Registro de comandos (/facturas, /retenciones, /web)
 │   ├── core/
-│   │   ├── types.ts            # Tipos compartidos (TransformOptions, etc.)
-│   │   └── processor.ts        # Orquestador de procesamiento (processFile,
-│   │                           #   processFiles, genera IDs únicos)
+│   │   ├── types.ts             # Tipos compartidos (TransformOptions, TransformStats, etc.)
+│   │   ├── processor.ts         # Orquestador: processFile, processFiles, genera IDs
+│   │   ├── modules.ts           # Definición de módulos (facturas, retenciones)
+│   │   ├── column-detector.ts   # Detección de columnas por nombre y color
+│   │   ├── semantic-rules.ts    # Reglas de transformación (eliminación, renombrado)
+│   │   ├── excel-formatter.ts   # Formateo de salida (anchos, filtros, estilos)
+│   │   └── style-cleaner.ts     # Limpieza de estilos via JSZip
+│   ├── modules/
+│   │   └── retenciones/
+│   │       ├── index.ts         # Re-exports
+│   │       ├── domain/
+│   │       │   ├── retencion.entity.ts   # Entidad Retencion
+│   │       │   └── retencion.types.ts    # Tipos del dominio
+│   │       ├── mappers/
+│   │       │   └── excel-retencion.mapper.ts  # Mapeo Excel → entidad
+│   │       └── use-cases/
+│   │           └── transform-retenciones.ts   # Caso de uso principal
 │   ├── server/
-│   │   ├── index.ts            # Servidor Express (inicia en puerto 3000)
-│   │   ├── store.ts            # Almacén en memoria: Map de FileJob, tempPaths
+│   │   ├── index.ts             # Express app factory (createApp)
+│   │   ├── store.ts             # SessionStore interfaz + InMemoryStore
 │   │   └── routes/
-│   │       └── files.ts        # Rutas API: upload, list, delete, process, download
-│   ├── web/
-│   │   ├── index.html          # HTML de entrada (Vite)
-│   │   ├── main.tsx            # Montaje React
-│   │   ├── App.tsx             # Componente raíz
-│   │   ├── index.css           # Estilos (Geist font, fondo #f5f5f7)
-│   │   ├── api.ts              # Cliente HTTP (fetch al backend)
-│   │   ├── store.ts            # Estado global Zustand (files, tipoGasto,
-│   │   │                       #   outputNames, isProcessing, isUploading)
-│   │   └── components/
-│   │       ├── Header.tsx      # Barra de navegación superior
-│   │       ├── FileZone.tsx    # Zona de arrastre para subir archivos
-│   │       ├── TipoGastoSelect.tsx  # Selector EMPRESARIAL / PERSONAL
-│   │       ├── FileCard.tsx    # Tarjeta por archivo (nombre, estado, acciones)
-│   │       ├── ProcessButton.tsx    # Botón "Procesar todos"
-│   │       └── ResultPanel.tsx      # Panel de resultados y descargas
-│   └── utils/
-│       ├── colors.ts           # Clasificador de colores (azul, verde, rojo,
-│       │                       #   amarillo, morado, ninguno)
-│       ├── formulas.ts         # Traducción de fórmulas a nuevas posiciones
-│       ├── gradient.ts         # Utilidades de gradiente
-│       └── paths.ts            # Validación de rutas de archivo
-├── dist/                        # Código JavaScript compilado ( TypeScript)
-├── vite.config.ts               # Configuración Vite para build web
+│   │       └── files.ts         # Rutas API: upload, list, delete, process, download
+│   ├── transformer.ts           # Orquestador de transformación
+│   ├── utils/
+│   │   ├── colors.ts            # Clasificador de colores (ARGB → HSL)
+│   │   ├── formulas.ts          # Traducción de fórmulas Excel
+│   │   ├── id.ts                # generateId() unificado
+│   │   └── paths.ts             # Validación y limpieza de rutas
+│   ├── types/
+│   │   └── cli-progress.d.ts    # Declaraciones de tipos para cli-progress
+│   └── web/
+│       ├── index.html           # HTML de entrada (Vite)
+│       ├── main.tsx             # Montaje React
+│       ├── App.tsx              # Componente raíz
+│       ├── index.css            # Estilos (Tailwind CSS 4)
+│       ├── api.ts               # Cliente HTTP (fetch al backend)
+│       ├── store.ts             # Estado global Zustand
+│       └── components/
+│           ├── Header.tsx       # Barra de navegación
+│           ├── ModuleSelector.tsx  # Selector de módulo (Facturas/Retenciones)
+│           ├── FileZone.tsx     # Zona de arrastre
+│           ├── TipoGastoSelect.tsx  # Selector gasto
+│           ├── FileCard.tsx     # Tarjeta por archivo
+│           ├── ProcessButton.tsx    # Botón "Procesar todos"
+│           └── ResultPanel.tsx      # Panel de resultados
+├── tests/                       # Tests (vitest)
+│   └── core/
+│       ├── transformer.test.ts  # Tests del motor de transformación
+│       ├── processor.test.ts    # Tests del orquestador
+│       ├── retenciones.test.ts  # Tests del módulo retenciones
+│       └── retenciones-name.test.ts  # Tests de detección dinámica de hojas
+├── specs/                       # Especificaciones SDD (GitHub Spec Kit)
+│   ├── 00-platform-vision/
+│   ├── 01-core-module/
+│   ├── 02-facturas-module/
+│   ├── 03-plugin-architecture.md
+│   └── migration/
+├── dist/                        # Código compilado (TypeScript + Vite)
+│   ├── web/                     # Cliente web compilado (Vite)
+│   └── ...                      # CLI + servidor compilados
+├── vite.config.ts               # Configuración Vite
+├── vitest.config.ts             # Configuración Vitest
 ├── tsconfig.json
 └── package.json
 ```
@@ -359,11 +397,11 @@ El servidor Express expone los siguientes endpoints cuando se inicia el cliente 
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `POST` | `/api/files` | Subir archivos (multipart/form-data, hasta 20 archivos, 50 MB c/u). Acepta `tipoGasto` en el body. |
+| `POST` | `/api/files` | Subir archivos (multipart/form-data, hasta 20 archivos, 50 MB c/u). Acepta `tipoGasto` y `moduleId` en el body. |
 | `GET` | `/api/files` | Listar todos los archivos subidos con su estado (`pending`, `processing`, `done`, `error`). |
 | `GET` | `/api/files/:id` | Obtener detalle de un archivo específico. |
 | `DELETE` | `/api/files/:id` | Eliminar un archivo y su archivo temporal del disco. |
-| `POST` | `/api/files/process` | Procesar todos los archivos con estado `pending`. Body: `{ tipoGasto, outputNames }`. |
+| `POST` | `/api/files/process` | Procesar todos los archivos con estado `pending`. Body: `{ tipoGasto, outputNames, moduleId }`. |
 | `GET` | `/api/files/:id/download` | Descargar el archivo procesado. Devuelve el `.xlsx` con el nombre de salida configurado. |
 
 ### Estados de un archivo
@@ -382,11 +420,11 @@ El servidor Express expone los siguientes endpoints cuando se inicia el cliente 
 | Comando | Descripción |
 |---------|-------------|
 | `npm run build` | Compilar TypeScript (CLI + servidor) y hacer ejecutable `dist/index.js` |
-| `npm run build:web` | Compilar cliente web con Vite (salida en `src/web/dist`) |
+| `npm run build:web` | Compilar cliente web con Vite (salida en `dist/web/`) |
 | `npm run build:all` | Compilar todo (CLI + servidor + web) |
 | `npm run dev:web` | Desarrollo web con hot reload (Vite) |
 | `npm run start:web` | Iniciar servidor web en producción (después de `npm run build:all`) |
-| `npm run clean` | Eliminar `dist/` y `src/web/dist` |
+| `npm run clean` | Eliminar `dist/` |
 | `npm run rebuild` | Limpiar y recompilar todo |
 
 ### Instalación como comando global
@@ -426,11 +464,11 @@ npm run start:web   # Inicia en http://localhost:3000
 ### Tests
 
 ```bash
-npm test
-# echo "Error: no test specified" && exit 1
+npm test              # Ejecutar todos los tests (vitest)
+npm run test:watch    # Modo watch (re-ejecuta al guardar)
 ```
 
-> Los tests no están configurados aún. Contribuidores animados a añadirlos.
+Tests cubren el motor de transformación, el orquestador de procesamiento y el módulo de retenciones. Framework: **Vitest** (17 tests, 4 archivos de test).
 
 ## Solución de problemas
 
@@ -466,7 +504,10 @@ InvoiceFlow limpia estilos residuales del archivo de entrada, pero algunos forma
 
 ## Roadmap
 
-- [ ] **Tests automatizados** — Cobertura de transformación, API y componentes web
+- [x] **Tests automatizados** — Vitest con cobertura de transformación, procesamiento y retenciones
+- [x] **Módulo retenciones** — Transformación de retenciones (40→7 columnas)
+- [x] **Cliente web con módulos** — Selector de módulo, Tailwind CSS 4, Zustand
+- [x] **Nombres de salida personalizados** — Cada archivo puede tener un nombre de salida diferente
 - [ ] **Modo batch** — Procesar carpetas completas con patrón de archivos
 - [ ] **Historial de procesamiento** — Guardar registro de archivos transformados
 - [ ] **CLI pipe** — Encadenar transformaciones con `|` entre comandos
@@ -474,6 +515,30 @@ InvoiceFlow limpia estilos residuales del archivo de entrada, pero algunos forma
 - [ ] **Multi-idioma** — Soporte para inglés además de español
 - [ ] **Configuración persistida** — Guardar preferencia de `tipo-gasto` default
 - [ ] **Progreso en web** — Barra de progreso visual durante el procesamiento
+
+## Compatibilidad
+
+InvoiceFlow funciona en las siguientes plataformas:
+
+| Plataforma | Estado |
+|------------|--------|
+| Linux (x64, arm64) | ✅ Completamente soportado |
+| macOS (x64, arm64) | ✅ Completamente soportado |
+| Windows (x64, arm64) | ✅ Completamente soportado |
+
+**Requisitos:** Node.js >= 18.0.0
+
+**Notas por plataforma:**
+- **Linux**: Se usa `xdg-open` para abrir el navegador
+- **macOS**: Se usa `open` para abrir el navegador
+- **Windows**: Se usa `start` para abrir el navegador. El comando `chmod` en `postinstall` se ejecuta con `|| true` para compatibilidad
+
+## Limitaciones conocidas
+
+- El cliente web limita cada archivo a 50 MB (para archivos mayores, usa la CLI directamente)
+- Los archivos `.xls` (Excel 97-2003) se convierten internamente a `.xlsx` — si la conversión falla, guarda el archivo como `.xlsx` manualmente
+- Algunos formatos Excel muy complejos (hojas protegidas, macros) pueden generar conflictos en los estilos de salida
+- El procesamiento es secuencial (no se procesan archivos en paralelo)
 
 ## Licencia
 

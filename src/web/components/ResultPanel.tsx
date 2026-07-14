@@ -1,6 +1,7 @@
 import { CheckCircle2, Download, Zap, FileText, Inbox } from 'lucide-react';
 import { FileInfo, downloadFile, downloadAll } from '../api';
 import { useState } from 'react';
+import { useStore } from '../store';
 
 interface ResultPanelProps {
     files: FileInfo[];
@@ -9,8 +10,10 @@ interface ResultPanelProps {
 export function ResultPanel({ files }: ResultPanelProps) {
     const [downloadingAll, setDownloadingAll] = useState(false);
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
-    const doneFiles = files.filter(f => f.status === 'done');
-    const errorFiles = files.filter(f => f.status === 'error');
+    const selectedModule = useStore(s => s.selectedModule);
+    const moduleFiles = files.filter(f => f.module === selectedModule.id);
+    const doneFiles = moduleFiles.filter(f => f.status === 'done');
+    const errorFiles = moduleFiles.filter(f => f.status === 'error');
     const hasResults = doneFiles.length > 0 || errorFiles.length > 0;
 
     if (!hasResults) {
@@ -28,7 +31,7 @@ export function ResultPanel({ files }: ResultPanelProps) {
     const handleDownloadAll = async () => {
         setDownloadingAll(true);
         try {
-            await downloadAll(files);
+            await downloadAll(moduleFiles);
         } finally {
             setDownloadingAll(false);
         }

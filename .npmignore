@@ -11,9 +11,6 @@ yarn-error.log*
 .pnp
 .pnp.js
 
-# Build output (will be rebuilt on install)
-dist/
-
 # IDE and editor files
 .vscode/
 .idea/
@@ -69,3 +66,6 @@ temp/
 
 # License (will be included separately)
 LICENSE
+
+# npm auth (must not be published)
+.npmrc

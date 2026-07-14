@@ -18,3 +18,10 @@
     --font-sans: 'Geist', -apple-system, sans-serif;
     --font-serif: 'Instrument Serif', Georgia, serif;
 }
+
+body {
+    font-family: var(--font-sans);
+    background-color: var(--color-surface-dim);
+    color: var(--color-text);
+    margin: 0;
+}

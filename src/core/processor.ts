@@ -3,16 +3,14 @@ import * as path from 'path';
 import * as os from 'os';
 import { ExcelTransformer } from '../transformer';
 import { TransformOptions, TransformStats, ProgressCallback } from './types';
-
-function generateId(): string {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
+import { generateId } from '../utils/id';
 
 export interface ProcessResult {
     id: string;
     originalName: string;
     outputPath: string;
     stats: TransformStats;
+    module?: string;
 }
 
 export async function processFile(
@@ -25,8 +23,6 @@ export async function processFile(
     const outputDir = path.join(os.tmpdir(), 'invoiceflow');
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
-    // Output file is keyed by job ID to prevent collisions when the same
-    // file is processed multiple times with different output names.
     const uniqueId = jobId || generateId();
     const outputPath = path.join(outputDir, uniqueId + '.xlsx');
 
@@ -42,6 +38,7 @@ export async function processFile(
         originalName,
         outputPath,
         stats,
+        module: options.module || 'facturas',
     };
 }
 

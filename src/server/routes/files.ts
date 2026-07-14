@@ -5,6 +5,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { addFile, getFile, getAllFiles, removeFile, updateFile, getStore } from '../store';
 import { processFile } from '../../core/processor';
+import { generateId } from '../../utils/id';
+import { getModuleById } from '../../core/modules';
 
 const router = Router();
 const upload = multer({
@@ -20,13 +22,10 @@ const upload = multer({
     }
 });
 
-function generateId(): string {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
-
 router.post('/', upload.array('files', 20), async (req: Request, res: Response) => {
     try {
         const files = req.files as Express.Multer.File[];
+        const moduleId = (req.body.moduleId as string) || 'facturas';
         const tipoGasto = (req.body.tipoGasto as string) || 'EMPRESARIAL';
 
         if (!files || files.length === 0) {
@@ -34,10 +33,10 @@ router.post('/', upload.array('files', 20), async (req: Request, res: Response) 
             return;
         }
 
+        const module = getModuleById(moduleId);
         const results = [];
         for (const file of files) {
             const id = generateId();
-            // Preserve original extension for transformer (.xls vs .xlsx detection)
             const ext = path.extname(file.originalname).toLowerCase();
             const tempDir = path.dirname(file.path);
             const newPath = path.join(tempDir, id + ext);
@@ -46,12 +45,13 @@ router.post('/', upload.array('files', 20), async (req: Request, res: Response) 
                 id,
                 originalName: file.originalname,
                 status: 'pending',
+                module: moduleId,
                 createdAt: Date.now(),
             }, newPath);
             results.push({ id, originalName: file.originalname });
         }
 
-        res.json({ files: results, tipoGasto });
+        res.json({ files: results, moduleId, tipoGasto });
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
@@ -77,7 +77,8 @@ router.delete('/:id', (req: Request, res: Response) => {
 
 router.post('/process', async (req: Request, res: Response) => {
     try {
-        const { tipoGasto, outputNames } = req.body as {
+        const { moduleId, tipoGasto, outputNames } = req.body as {
+            moduleId?: string;
             tipoGasto?: string;
             outputNames?: Record<string, string>;
         };
@@ -85,30 +86,31 @@ router.post('/process', async (req: Request, res: Response) => {
         const results = [];
 
         for (const file of files) {
-            const tempPath = getStore().tempPaths.get(file.id);
+            const tempPath = getStore().getTempPath(file.id);
             if (!tempPath) continue;
 
-            // Resolve output name: use custom name from client, or fall back to stored value
             const customName = outputNames?.[file.id] || file.outputName;
+            const fileModule = moduleId || file.module || 'facturas';
+            const module = getModuleById(fileModule);
 
-            // Persist outputName on the FileJob BEFORE processing
             updateFile(file.id, {
                 status: 'processing',
                 outputName: customName,
             });
 
             try {
-                // Pass file.id so processor writes to a unique path (file.id.xlsx)
                 const result = await processFile(tempPath, {
-                    tipoGasto,
+                    tipoGasto: fileModule === 'facturas' ? tipoGasto : undefined,
                     outputName: customName,
+                    module: fileModule,
                 }, file.id);
                 updateFile(file.id, {
                     status: 'done',
                     stats: result.stats,
                     outputPath: result.outputPath,
+                    module: fileModule,
                 });
-                results.push({ id: file.id, status: 'done', stats: result.stats });
+                results.push({ id: file.id, status: 'done', stats: result.stats, module: fileModule });
             } catch (err: any) {
                 updateFile(file.id, { status: 'error', error: err.message });
                 results.push({ id: file.id, status: 'error', error: err.message });
