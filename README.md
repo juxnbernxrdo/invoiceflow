@@ -200,18 +200,18 @@ Accede a `http://localhost:3000`.
 
 ```mermaid
 flowchart TD
-    A["invo"] --> B{"¿Hay argumentos de comando?"}
+    A["invo"] --> B{"Hay argumentos de comando"}
     B -->|"/facturas o /retenciones"| D["Archivos pasados como argumentos"]
-    B -->|"No / desconocido"| C["Modo interactivo: banner + prompt"]
-    C --> C1["Tecla /: Paleta de Comandos"]
-    C --> C2["Tecla @: Selector de archivos Excel"]
+    B -->|"Sin argumentos o desconocido"| C["Modo interactivo - banner y prompt"]
+    C --> C1["Tecla / - Paleta de Comandos"]
+    C --> C2["Tecla @ - Selector de archivos Excel"]
     C1 --> E["Selecciona /facturas o /retenciones"]
     C2 --> E
     D --> E
-    E --> F["Selector interactivo de archivos (si no se pasaron)"]
-    F --> G["Prompt: Tipo de gasto (solo Facturas)"]
-    G --> H["Prompt: Nombre de archivo de salida"]
-    H --> I["ExcelTransformer.transform / TransformRetencionesUseCase"]
+    E --> F["Selector interactivo de archivos si no se pasaron"]
+    F --> G["Prompt - Tipo de gasto solo para Facturas"]
+    G --> H["Prompt - Nombre de archivo de salida"]
+    H --> I["ExcelTransformer o TransformRetencionesUseCase"]
     I --> J["Archivo .xlsx en directorio de entrada"]
 ```
 
@@ -219,21 +219,21 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph Server["Express Server (WebServerManager)"]
-        S1["src/server/web-server-manager.ts"] --> S2["express app"]
-        S2 --> S3["static assets (dist/web)"]
-        S2 --> S4["API routes /api/files"]
+    subgraph Server["Express Server - WebServerManager"]
+        S1["web-server-manager.ts"] --> S2["express app"]
+        S2 --> S3["static assets - dist/web"]
+        S2 --> S4["API routes - /api/files"]
     end
 
-    subgraph Client["Web Client (React + Vite)"]
+    subgraph Client["Web Client - React + Vite"]
         C1["src/web/main.tsx"]
         C2["App.tsx"]
-        C3["state (Zustand)"]
+        C3["Zustand store"]
         C4["components"]
-        C5["api.ts (fetch)"]
+        C5["api.ts"]
     end
 
-    S3 -->|serve| C1
+    S3 -->|"serve"| C1
     C1 --> C2
     C2 --> C3
     C3 --> C4
