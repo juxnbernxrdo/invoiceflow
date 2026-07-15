@@ -200,47 +200,47 @@ Accede a `http://localhost:3000`.
 
 ```mermaid
 flowchart TD
-    A["invo"] --> B{"Hay argumentos de comando"}
-    B -->|"/facturas o /retenciones"| D["Archivos pasados como argumentos"]
-    B -->|"Sin argumentos o desconocido"| C["Modo interactivo - banner y prompt"]
-    C --> C1["Tecla / - Paleta de Comandos"]
-    C --> C2["Tecla @ - Selector de archivos Excel"]
-    C1 --> E["Selecciona /facturas o /retenciones"]
+    A[invo] --> B{Hay argumentos de comando}
+    B -->|facturas o retenciones| D[Archivos pasados como argumentos]
+    B -->|Sin argumentos| C[Modo interactivo - banner y prompt]
+    C --> C1[Tecla barra - Paleta de Comandos]
+    C --> C2[Tecla arroba - Selector de archivos Excel]
+    C1 --> E[Selecciona comando de modulo]
     C2 --> E
     D --> E
-    E --> F["Selector interactivo de archivos si no se pasaron"]
-    F --> G["Prompt - Tipo de gasto solo para Facturas"]
-    G --> H["Prompt - Nombre de archivo de salida"]
-    H --> I["ExcelTransformer o TransformRetencionesUseCase"]
-    I --> J["Archivo .xlsx en directorio de entrada"]
+    E --> F[Selector interactivo de archivos]
+    F --> G[Prompt - Tipo de gasto - solo Facturas]
+    G --> H[Prompt - Nombre de archivo de salida]
+    H --> I[ExcelTransformer o TransformRetencionesUseCase]
+    I --> J[Archivo xlsx en directorio de entrada]
 ```
 
 ### Cliente web — Arquitectura
 
 ```mermaid
-flowchart TD
-    subgraph Server["Express Server - WebServerManager"]
-        S1["web-server-manager.ts"] --> S2["express app"]
-        S2 --> S3["static assets - dist/web"]
-        S2 --> S4["API routes - /api/files"]
+flowchart LR
+    subgraph Server[Express Server]
+        S1[web-server-manager] --> S2[express app]
+        S2 --> S3[static assets]
+        S2 --> S4[API routes]
     end
 
-    subgraph Client["Web Client - React + Vite"]
-        C1["src/web/main.tsx"]
-        C2["App.tsx"]
-        C3["Zustand store"]
-        C4["components"]
-        C5["api.ts"]
+    subgraph Client[Web Client React]
+        C1[main.tsx]
+        C2[App.tsx]
+        C3[Zustand store]
+        C4[components]
+        C5[api.ts]
     end
 
-    S3 -->|"serve"| C1
+    S3 -->|serve| C1
     C1 --> C2
     C2 --> C3
     C3 --> C4
     C4 --> C5
-    C5 -->|"POST /api/files"| S4
-    C5 -->|"POST /api/files/process"| S4
-    C5 -->|"GET /api/files/:id/download"| S4
+    C5 -->|POST files| S4
+    C5 -->|POST process| S4
+    C5 -->|GET download| S4
 ```
 
 ## Flujo de procesamiento
