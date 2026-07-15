@@ -14,6 +14,7 @@ export class Retencion implements RetencionRecord {
     public porcenIva: number;
     public valorIva: number;
 
+    public codDoc: string;
     public numeroFactura: string;
     public fechaEmisionFactura: any;
     public subtotal: number | null;
@@ -35,6 +36,7 @@ export class Retencion implements RetencionRecord {
         this.porcenIva = data.porcenIva;
         this.valorIva = data.valorIva;
 
+        this.codDoc = data.codDoc || '';
         this.numeroFactura = data.numeroFactura || '';
         this.fechaEmisionFactura = data.fechaEmisionFactura;
         this.subtotal = data.subtotal;
@@ -47,8 +49,10 @@ export class Retencion implements RetencionRecord {
         if (!this.razonSocial.trim()) {
             throw new Error('La razón social no puede estar vacía.');
         }
-        if (!this.numeroFactura.trim()) {
-            throw new Error('El número de factura no puede estar vacío.');
+        // Only require numeroFactura when there IS an associated invoice document.
+        // codDoc '00' means retención directa sin factura asociada (e.g., retenciones bancarias).
+        if (this.codDoc !== '00' && !this.numeroFactura.trim()) {
+            throw new Error('El número de factura no puede estar vacío para documentos tipo ' + this.codDoc + '.');
         }
     }
 }

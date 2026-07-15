@@ -5,53 +5,60 @@ import { processFiles } from './processor';
 import { startInteractiveMode } from './interactive';
 import { MODULES } from '../core/modules';
 import { startServer } from '../server/index';
+import { webServerManager } from '../server/web-server-manager';
+import { setupGracefulShutdown } from '../server/graceful-shutdown';
 import { CommandRegistry } from './registry';
+import { setDebugEnabled } from '../utils/logger';
+import { VersionService } from '../utils/version-service';
+import { HelpService } from '../utils/help-service';
 
 function getHeader(): string {
-    return `
-      ██╗███╗   ██╗██╗   ██╗ ██████╗   InvoiceFlow CLI 1.2.0
-      ╚═╝████╗  ██║██║   ██║██╔═══██╗  Excel Processing Platform
-      ██╗██╔██╗ ██║██║   ██║██║   ██║  github.com/juxnbernxrdo/invoiceflow
-      ██║██║╚██╗██║╚██████╔╝╚██████╔╝  ~
-      ╚═╝╚═╝ ╚═══╝ ╚═════╝  ╚═════╝
-`;
+    return VersionService.getBanner();
 }
 
 export async function run() {
+    setupGracefulShutdown();
+    
     const program = new Command();
 
     program
         .name('invo')
         .description('Transformar archivos Excel mediante instrucciones predefinidas.')
-        .version('1.2.0')
+        .version(VersionService.getVersion())
         .option('--tipo-gasto <value>', 'Tipo de gasto para la columna TIPO GASTO (default: EMPRESARIAL)')
         .option('--output <value>', 'Nombre del archivo de salida')
+        .option('--debug', 'Activar modo debug con logging detallado')
         .argument('[files...]', 'Archivos Excel a transformar')
-        .action(async (files: string[], options: { tipoGasto?: string; output?: string }) => {
+        .action(async (files: string[], options: { tipoGasto?: string; output?: string; debug?: boolean }) => {
+            if (options.debug) {
+                setDebugEnabled(true);
+            }
             const firstArg = files[0];
 
             if (firstArg === '/' || firstArg === '/help' || firstArg === 'help') {
-                console.log(getHeader());
-                console.log('\nInvoiceFlow CLI\n');
-                console.log('Comandos disponibles:\n');
-                const commands = CommandRegistry.getAllUnique();
-                commands.forEach(cmd => {
-                    console.log(`  ${cmd.name.padEnd(15)} ${cmd.description}`);
-                });
-                console.log('');
+                const subArg = files[1];
+                if (subArg) {
+                    HelpService.command(subArg);
+                } else {
+                    HelpService.general();
+                }
                 return;
             }
 
             if (firstArg === '/version' || firstArg === 'version') {
-                console.log('InvoiceFlow version 1.2.0\n');
+                console.log(`InvoiceFlow version ${VersionService.getVersion()}\n`);
                 return;
             }
 
             if (firstArg === '/web') {
                 const port = 3000;
-                const url = `http://localhost:${port}`;
-                console.log(`\n  Iniciando InvoiceFlow web en ${url}...`);
-                await startServer(port);
+                
+                if (webServerManager.isRunning()) {
+                    console.log(`\n✓ InvoiceFlow Web ya está ejecutándose.\n`);
+                    console.log(`URL:\nhttp://localhost:${port}\n`);
+                } else {
+                    await webServerManager.start(port);
+                }
                 return;
             }
 

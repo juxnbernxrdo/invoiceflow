@@ -4,3 +4,5 @@ src/web/dist/
 *.log
 .env
 .npmrc
+*.xls
+*.xlsx

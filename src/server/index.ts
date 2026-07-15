@@ -1,12 +1,12 @@
+import { webServerManager, WebServerManager } from './web-server-manager';
 import express from 'express';
-import path from 'path';
-import filesRouter from './routes/files';
 import { Request, Response } from 'express';
+import path from 'path';
 import fs from 'fs';
+import filesRouter from './routes/files';
 
 export function createServer(port: number = 3000): express.Express {
     const app = express();
-
     app.use(express.json());
     app.use('/api/files', filesRouter);
 
@@ -23,12 +23,18 @@ export function createServer(port: number = 3000): express.Express {
     return app;
 }
 
-export function startServer(port: number = 3000): Promise<void> {
-    return new Promise<void>((resolve) => {
-        const app = createServer(port);
-        app.listen(port, () => {
-            console.log(`\n  InvoiceFlow web iniciado en http://localhost:${port}\n`);
-            resolve();
-        });
-    });
+export async function startServer(port: number = 3000): Promise<void> {
+    return webServerManager.start(port);
+}
+
+export async function stopServer(): Promise<void> {
+    return webServerManager.stop();
+}
+
+export function isServerRunning(): boolean {
+    return webServerManager.isRunning();
+}
+
+export function getServerStatus() {
+    return webServerManager.getStatus();
 }

@@ -3,6 +3,7 @@ import { ExcelRetencionMapper } from '../mappers/excel-retencion.mapper';
 import { Retencion } from '../domain/retencion.entity';
 import { cleanupXlsxFile } from '../../../core/style-cleaner';
 import { TransformStats } from '../../../core/types';
+import { debugLog, debugError, isDebugEnabled } from '../../../utils/logger';
 
 export class TransformRetencionesUseCase {
     public async execute(workbook: ExcelJS.Workbook, outputPath: string, stats: TransformStats): Promise<void> {
@@ -82,9 +83,12 @@ export class TransformRetencionesUseCase {
             throw new Error('El archivo no tiene el formato esperado para Retenciones (se requiere al menos razonsocial y sussecuenc).');
         }
 
+        debugLog({ stage: 'SHEET_DETECTED', sheet: sourceSheet.name, detail: `Cols: ${sourceSheet.columnCount}, Rows: ${sourceSheet.rowCount}` }, 'Source sheet found');
+
         stats.originalColumns = sourceSheet.columnCount;
 
         const entities: Retencion[] = [];
+        const rowErrors: { row: number; message: string; column?: string; value?: any }[] = [];
         let lastRow = sourceSheet.rowCount;
         while (lastRow > 1) {
             const checkRow = sourceSheet.getRow(lastRow);
@@ -106,9 +110,39 @@ export class TransformRetencionesUseCase {
                 const entity = ExcelRetencionMapper.mapRowToEntity(row, colIdxs);
                 entities.push(entity);
                 stats.recalculatedRows++;
+                if (isDebugEnabled()) {
+                    debugLog({ stage: 'ROW_OK', row: r, detail: `Razon: ${entity.razonSocial.substring(0, 30)}` }, 'Row processed');
+                }
             } catch (err: any) {
-                throw new Error(`Fila ${r} inválida: ${err.message}`);
+                debugError({ stage: 'ROW_FAIL', row: r }, err);
+                // Collect row errors instead of aborting entirely
+                const razonSocial = colIdxs.razonsocial > 0
+                    ? row.getCell(colIdxs.razonsocial).value
+                    : undefined;
+                rowErrors.push({
+                    row: r,
+                    message: err.message,
+                    column: undefined,
+                    value: razonSocial ? String(razonSocial).substring(0, 50) : undefined,
+                });
             }
+        }
+
+        if (entities.length === 0) {
+            const errorDetail = rowErrors.length > 0
+                ? `\nFilas con error: ${rowErrors.map(e => `Fila ${e.row}: ${e.message}`).join('; ')}`
+                : '';
+            throw new Error(`No se pudo procesar ninguna fila del archivo.${errorDetail}`);
+        }
+
+        debugLog({ stage: 'MAPPING_COMPLETE', detail: `Entities: ${entities.length}, Errors: ${rowErrors.length}` }, 'Row mapping done');
+
+        if (rowErrors.length > 0) {
+            console.log(`\n⚠ ${rowErrors.length} fila(s) omitida(s) por errores de validación:`);
+            for (const e of rowErrors) {
+                console.log(`  Fila ${e.row}: ${e.message}${e.value ? ' (Proveedor: ' + e.value + ')' : ''}`);
+            }
+            console.log('');
         }
 
         stats.finalColumns = 12;
@@ -124,9 +158,9 @@ export class TransformRetencionesUseCase {
         const sVent = workbook.addWorksheet('VENTAS');
 
         sRet.autoFilter = undefined as any;
-        sRet.views = [];
+        sRet.views = [{ showGridLines: true }];
         sVent.autoFilter = undefined as any;
-        sVent.views = [];
+        sVent.views = [{ showGridLines: true }];
 
         // Write RETENCIÓN headers
         const h1Headers = [
@@ -234,7 +268,7 @@ export class TransformRetencionesUseCase {
             row.getCell(5).value = ent.tarifaCero;
             row.getCell(6).value = ent.iva;
 
-            if (ent.subtotal !== null && ent.subtotal !== 0) {
+            if (ent.subtotal !== null) {
                 row.getCell(7).value = {
                     formula: `+D${rIdx}+F${rIdx}`,
                     result: ent.total

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-07-15
+
+### Added
+- Redesigned `/help` command into a modular documentation center (`HelpService`) with contextual/command-specific guides (e.g., `/help facturas`, `/help retenciones`).
+- Explicit gridline visibility configuration (`showGridLines: true`) for both worksheets (`RETENCIÓN` and `VENTAS`).
+- Unit tests for `VersionService` and `HelpService`.
+
+### Fixed
+- Fixed formula generator bug in `transform-retenciones.ts` where total sum would target column E instead of column D if the invoice subtotal was exactly `0`.
+
+## [1.2.2] - 2026-07-15
+
+### Fixed
+- Fixed `res.sendFile` crash (`NotFoundError: Not Found`) during `/web` execution in global installation by specifying absolute path root option.
+
+## [1.2.1] - 2026-07-15
+
+### Added
+- Dynamic versioning using `VersionService` to read directly from `package.json` as the Single Source of Truth.
+- Removed all hardcoded version references from banners, CLI flags, command palette, and consoles.
+
 ## [1.2.0] - 2026-07-14
 
 ### Added

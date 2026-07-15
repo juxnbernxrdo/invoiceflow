@@ -1,4 +1,5 @@
 import { Retencion } from '../domain/retencion.entity';
+import { debugLog, isDebugEnabled } from '../../../utils/logger';
 
 export class ExcelRetencionMapper {
     private static getVal(row: any, idx: number): any {
@@ -26,6 +27,11 @@ export class ExcelRetencionMapper {
     }
 
     public static mapRowToEntity(row: any, colIdxs: any): Retencion {
+        if (isDebugEnabled()) {
+            const rowNumber = row.number || '?';
+            debugLog({ stage: 'MAP_ROW', row: rowNumber }, 'Mapping row to entity');
+        }
+
         const rSoc = this.getVal(row, colIdxs.razonsocial);
         const rucVal = this.getVal(row, colIdxs.rucemisor);
         const fEmiRet = this.excelSerialToDate(this.getVal(row, colIdxs.fechaemi));
@@ -78,6 +84,7 @@ export class ExcelRetencionMapper {
             baseIva,
             porcenIva,
             valorIva,
+            codDoc,
             numeroFactura: nFact ? String(nFact).trim() : '',
             fechaEmisionFactura: fEmiFact,
             subtotal,

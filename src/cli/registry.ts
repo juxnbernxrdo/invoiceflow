@@ -2,10 +2,12 @@ import { MODULES, getModuleById } from '../core/modules';
 import prompts from 'prompts';
 import { processFiles } from './processor';
 import { promptTipoGasto, promptOutputName } from './prompts';
-import { startServer } from '../server/index';
+import { webServerManager } from '../server/web-server-manager';
 import { exec } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { VersionService } from '../utils/version-service';
+import { HelpService } from '../utils/help-service';
 
 export interface CLICommand {
     id: string;
@@ -76,18 +78,23 @@ CommandRegistry.register({
     keywords: ['server', 'browser', 'gui'],
     handler: async (args, rl, keypressHandler) => {
         rl.pause();
+        
         const port = 3000;
-        const url = `http://localhost:${port}`;
-        console.log(`\n  Iniciando InvoiceFlow web en ${url}...`);
-        await startServer(port);
+        
+        if (webServerManager.isRunning()) {
+            console.log(`\n✓ InvoiceFlow Web ya está ejecutándose.\n`);
+            console.log(`URL:\nhttp://localhost:${port}\n`);
+        } else {
+            await webServerManager.start(port);
+        }
 
         const openCmd = process.platform === 'darwin' ? 'open'
             : process.platform === 'win32' ? 'start'
             : 'xdg-open';
-        exec(`${openCmd} ${url}`, (err) => {
+        exec(`${openCmd} http://localhost:${port}`, (err) => {
             if (err) {
                 console.log('⚠ No se pudo abrir el navegador automáticamente.');
-                console.log(`  Abre manualmente: ${url}\n`);
+                console.log(`  Abre manualmente: http://localhost:${port}\n`);
             }
         });
     }
@@ -96,12 +103,17 @@ CommandRegistry.register({
 CommandRegistry.register({
     id: 'help',
     name: '/help',
-    description: 'Muestra la paleta de comandos interactiva.',
+    description: 'Muestra la ayuda interactiva de comandos.',
     category: 'Sistema',
     aliases: ['help', '/'],
     keywords: ['ayuda', 'comandos', 'palette'],
     handler: async (args, rl, keypressHandler) => {
-        // Handled directly inside command palette launcher
+        const subArg = args[0];
+        if (subArg) {
+            HelpService.command(subArg);
+        } else {
+            HelpService.general();
+        }
     }
 });
 
@@ -113,7 +125,7 @@ CommandRegistry.register({
     aliases: ['version'],
     keywords: ['info', 'build'],
     handler: async (args, rl, keypressHandler) => {
-        console.log('InvoiceFlow version 1.0.3\n');
+        console.log(`InvoiceFlow version ${VersionService.getVersion()}\n`);
     }
 });
 

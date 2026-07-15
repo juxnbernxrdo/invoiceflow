@@ -69,6 +69,21 @@ export function getSuggestionForError(errorMessage: string): string {
     if (lowerError.includes('xlrdfssheet')) {
         return 'El archivo podría tener hojas protegidas o formato incompatible. Prueba guardarlo como .xlsx.';
     }
+    if (lowerError.includes('no se pudo procesar ninguna fila')) {
+        return 'El archivo no contiene filas válidas para procesar. Verifica el formato del archivo.';
+    }
+    if (lowerError.includes('razón social no puede estar vacía')) {
+        return 'Hay filas con la razón social vacía. Verifica que el archivo tenga los datos completos.';
+    }
+    if (lowerError.includes('número de factura no puede estar vacío')) {
+        return 'Hay filas sin número de factura asociado. Esto puede ocurrir en retenciones directas sin factura.';
+    }
+    if (lowerError.includes('fila') && lowerError.includes('inválida')) {
+        return 'Una o más filas tienen datos inválidos. Revisa el archivo en Excel y verifica los datos.';
+    }
+    if (lowerError.includes('no tiene el formato esperado')) {
+        return 'El archivo no tiene las columnas requeridas. Asegúrate de usar un archivo de retenciones del SRI.';
+    }
 
     return 'Si el problema persiste, intenta con otro archivo o verifica que el archivo no esté dañado.';
 }

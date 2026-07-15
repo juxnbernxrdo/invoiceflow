@@ -36,7 +36,7 @@ npm run build
 
 ```bash
 invo --version
-# InvoiceFlow version 1.2.0
+# InvoiceFlow version 1.2.3
 ```
 
 ## Uso
@@ -84,7 +84,7 @@ Si eliminas el `@` con Backspace o Delete, el selector se cierra automáticament
 | `/facturas` | Procesar archivos como facturas (26→12 columnas) |
 | `/retenciones` | Procesar archivos como retenciones (40→7 columnas) |
 | `/web` | Iniciar el cliente web en `http://localhost:3000` |
-| `/help` | Mostrar ayuda y comandos disponibles |
+| `/help` | Mostrar ayuda y documentación detallada (general o por comando con `/help <comando>`) |
 | `/version` | Mostrar versión |
 | `/exit` | Salir de la CLI |
 

@@ -1,6 +1,6 @@
 {
   "name": "invoiceflow-cli",
-  "version": "1.2.0",
+  "version": "1.2.3",
   "description": "CLI tool to transform electronic invoice Excel files, removing unnecessary columns and calculating tax fields automatically.",
   "main": "dist/index.js",
   "bin": {

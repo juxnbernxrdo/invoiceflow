@@ -8,8 +8,8 @@ export function applyOutputFormatting(sheet: ExcelJS.Worksheet): void {
     const lastColLetter = String.fromCharCode(64 + lastCol);
     sheet.autoFilter = `A1:${lastColLetter}${sheet.rowCount}`;
 
-    // 2. Freeze panes at row 2 (freeze header)
-    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+    // 2. Freeze panes at row 2 (freeze header) and show grid lines
+    sheet.views = [{ state: 'frozen', ySplit: 1, showGridLines: true }];
 
     // 3. Header row formatting (row 1)
     const headerRow = sheet.getRow(1);
@@ -162,7 +162,7 @@ export function applyVentasOutputFormatting(sheet: ExcelJS.Worksheet): void {
 
     // AutoFilter and views removed to match RETENCIONES FINAL.xlsx structure
     sheet.autoFilter = undefined as any;
-    sheet.views = [];
+    sheet.views = [{ showGridLines: true }];
 
     // 3. Header row formatting (row 1)
     const headerRow = sheet.getRow(1);

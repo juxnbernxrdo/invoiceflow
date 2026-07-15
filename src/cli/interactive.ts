@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import prompts from 'prompts';
 import { CommandRegistry } from './registry';
+import { VersionService } from '../utils/version-service';
 
 const QUICK_HELP = `
 Escribe / para abrir la Command Palette interactiva.
@@ -121,13 +122,7 @@ async function openFileSelector(rl: readline.Interface, keypressHandler: any): P
 }
 
 function getHeader(): string {
-    return `
-      ██╗███╗   ██╗██╗   ██╗ ██████╗   InvoiceFlow CLI 1.0.3
-      ╚═╝████╗  ██║██║   ██║██╔═══██╗  Excel Processing Platform
-      ██╗██╔██╗ ██║██║   ██║██║   ██║  github.com/juxnbernxrdo/invoiceflow
-      ██║██║╚██╗██║╚██████╔╝╚██████╔╝  ~
-      ╚═╝╚═╝ ╚═══╝ ╚═════╝  ╚═════╝
-`;
+    return VersionService.getBanner();
 }
 
 function getBoxDrawnHeader(): string {
@@ -217,10 +212,6 @@ async function openCommandPalette(rl: readline.Interface, keypressHandler: any):
         });
 
         if (response && response.commandName) {
-            if (response.commandName === '/help') {
-                await openCommandPalette(rl, keypressHandler);
-                return;
-            }
             if (response.commandName === '@') {
                 await openFileSelector(rl, keypressHandler);
                 return;
@@ -322,7 +313,7 @@ export async function startInteractiveMode(): Promise<void> {
             return;
         }
 
-        if (cleanLine === '/' || cleanLine === '/help' || cleanLine === 'help') {
+        if (cleanLine === '/') {
             await openCommandPalette(rl, keypressHandler);
             return;
         }

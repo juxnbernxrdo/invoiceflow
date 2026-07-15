@@ -69,7 +69,12 @@ export async function processFiles(
             processedSuccessfully.push(original);
         } catch (err: any) {
             progressBar.stop();
-            console.log(`✘ ${original}: ${getSuggestionForError(err.message)}`);
+            const suggestion = getSuggestionForError(err.message);
+            console.log(`✘ ${original}:`);
+            console.log(`  ${suggestion}`);
+            if (err.message && err.message.includes('Fila')) {
+                console.log(`  Detalle: ${err.message}`);
+            }
             if (fs.existsSync(outPath)) {
                 try { fs.unlinkSync(outPath); } catch {}
             }

@@ -9,6 +9,7 @@ import { SEMANTIC_RULES, TransformRules } from './core/semantic-rules';
 import { ColumnInfo, readColumns, matchDeleted, matchHeader } from './core/column-detector';
 import { applyOutputFormatting, applyVentasOutputFormatting } from './core/excel-formatter';
 import { cleanupXlsxFile } from './core/style-cleaner';
+import { debugLog, isDebugEnabled } from './utils/logger';
 
 export { TransformOptions, TransformStats, ProgressCallback } from './core/types';
 export { TransformRules } from './core/semantic-rules';
@@ -46,6 +47,7 @@ export class ExcelTransformer {
         let tempXlsxPath = '';
 
         if (ext === '.xls') {
+            debugLog({ stage: 'XLS_CONVERT', file: inputPath }, 'Converting .xls to .xlsx');
             // Convert .xls to .xlsx using SheetJS (suppress all output)
             const origLog = console.log;
             const origWarn = console.warn;
@@ -69,6 +71,7 @@ export class ExcelTransformer {
                 tempXlsxPath = inputPath.replace(/\.xls$/i, '') + '_converted.xlsx';
                 XLSX.writeFile(xlsxWorkbook, tempXlsxPath, { bookType: 'xlsx' });
                 fileToRead = tempXlsxPath;
+                debugLog({ stage: 'XLS_CONVERT', detail: `Output: ${tempXlsxPath}, Sheets: ${xlsxWorkbook.SheetNames.length}` }, 'Conversion complete');
             } finally {
                 console.log = origLog;
                 console.warn = origWarn;
@@ -78,6 +81,8 @@ export class ExcelTransformer {
         }
 
         await workbook.xlsx.readFile(fileToRead);
+
+        debugLog({ stage: 'WORKBOOK_LOADED', file: fileToRead, detail: `Sheets: ${workbook.worksheets.length}` }, 'Workbook loaded');
 
         this.updateProgress('Archivo cargado');
 
@@ -90,6 +95,7 @@ export class ExcelTransformer {
         };
 
         if (moduleId === 'retenciones') {
+            debugLog({ stage: 'RETENCIONES_START', file: inputPath }, 'Starting retenciones pipeline');
             const { TransformRetencionesUseCase } = await import('./modules/retenciones');
             const useCase = new TransformRetencionesUseCase();
             await useCase.execute(workbook, outputPath, stats);
